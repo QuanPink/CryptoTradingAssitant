@@ -28,7 +28,7 @@ class TelegramNotifier:
         }
 
         try:
-            response = requests.post(url, json=payload, timeout=10)
+            response = requests.post(url, json=payload, timeout=30)
             if response.status_code == 200:
                 logger.info('Telegram message sent successfully')
                 return True
