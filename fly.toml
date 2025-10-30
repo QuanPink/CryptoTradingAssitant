@@ -1,0 +1,15 @@
+app = "crypto-trading-assistant"  # Đổi tên unique
+primary_region = "sin"
+
+[build]
+
+[env]
+  LOG_LEVEL = "INFO"
+
+[deploy]
+  strategy = "immediate"
+
+[[vm]]
+  memory = 256
+  cpu_kind = "shared"
+  cpus = 1
