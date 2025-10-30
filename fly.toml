@@ -1,5 +1,5 @@
-app = "crypto-trading-assistant"  # Đổi tên unique
-primary_region = "sin"
+app = 'crypto-trading-assistant'
+primary_region = 'sin'
 
 [build]
 
@@ -10,6 +10,6 @@ primary_region = "sin"
   strategy = "immediate"
 
 [[vm]]
-  memory = 256
+  memory = 512
   cpu_kind = "shared"
   cpus = 1
