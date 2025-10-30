@@ -39,17 +39,17 @@ class AccumulationAnalyzer:
     def detect_accumulation(self, df: pd.DataFrame) -> Optional[Dict]:
         """Detect if market is in accumulation phase"""
 
+        # Calculate ATR ratio
+        atr_series = atr(df, period=14)
+        atr_now = atr_series.iloc[-1]
+        close_now = df['close'].iloc[-1]
+        atr_ratio = atr_now / close_now if close_now > 0 else np.inf
+
         for lookback in reversed(self.lookback_windows):  # [24, 12]
             if len(df) < lookback + 1:
                 continue
 
             window_df = df.iloc[-lookback:]
-
-            # Calculate ATR ratio
-            atr_series = atr(df, period=14)
-            atr_now = atr_series.iloc[-1]
-            close_now = df['close'].iloc[-1]
-            atr_ratio = atr_now / close_now if close_now > 0 else np.inf
 
             # Calculate volume ratio
             vol_now_mean = window_df['volume'].mean()
@@ -65,7 +65,7 @@ class AccumulationAnalyzer:
             price_range = (price_max - price_min) / price_min if price_min > 0 else np.inf
 
             # Calculate Bollinger Band width
-            bbw = bollinger_band_width(df, period=self.lookback).iloc[-1]
+            bbw = bollinger_band_width(df, period=lookback).iloc[-1]
 
             # Check conditions
             cond_atr = atr_ratio < settings.ATR_RATIO_THRESHOLD
