@@ -295,7 +295,7 @@ class AccumulationAnalyzer:
 
         # Volume assessment
         if vol_spike:
-            msg += "✅\n\n"
+            msg += "✅\n"
 
             # Higher TF confirmation
             if higher_tf_confirm:
@@ -316,18 +316,9 @@ class AccumulationAnalyzer:
             else:
                 msg += "🟡 _Setup tốt (chưa confirm TF cao)_\n"
 
-            msg += "⚠️ _Tự kiểm tra trước khi vào_"
         else:
             msg += "⚠️\n\n"
-            msg += (
-                f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"⚠️ *VOLUME KHÔNG XÁC NHẬN*\n\n"
-                f"Breakout có thể là fake:\n"
-                f"• Volume thấp (x{vol_ratio:.1f})\n"
-                f"• Chờ volume tăng\n"
-                f"• Hoặc giá test lại {level_name.lower()}\n\n"
-                f"🔍 _Quan sát thêm, chưa vào lệnh_"
-            )
+            msg += "⚠️ *VOLUME KHÔNG XÁC NHẬN*"
 
         return msg
 
