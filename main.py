@@ -3,6 +3,7 @@ import time
 import ccxt
 
 from config.setting import settings
+from health import start_health_server
 from src.analyzers.accumulation import AccumulationAnalyzer
 from src.notifiers.telegram import TelegramNotifier
 from src.utils.helpers import align_to_next_5min
@@ -14,9 +15,12 @@ logger = setup_logger(__name__)
 def main():
     """Main bot loop"""
     logger.info("Starting Crypto Trading Assistant")
+
+    start_health_server(port=8080)
+
     logger.info(f"Exchange: {settings.EXCHANGE_ID}")
     logger.info(f"Symbols: {settings.SYMBOLS}")
-    logger.info(f"Timeframes: {settings.TIMEFRAMES}")
+    logger.info(f"Timeframes: {', '.join(settings.TIMEFRAMES)}")
     logger.info("=" * 60)
 
     # Initialize exchange
@@ -36,7 +40,7 @@ def main():
     notifier.send_message(
         f"🤖 *Bot Started*\n"
         f"Monitoring: {', '.join(settings.SYMBOLS)}\n"
-        f"Timeframes: {settings.TIMEFRAMES}"
+        f"Timeframes: {', '.join(settings.TIMEFRAMES)}"
     )
 
     # Align to next candle close

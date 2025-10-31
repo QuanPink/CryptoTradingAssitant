@@ -41,7 +41,6 @@ class Settings:
 
     # Logging
     LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
-    LOG_FILE: str = os.getenv('LOG_FILE', 'data/logs/bot.log')
 
     # Timeframe metadata
     TIMEFRAME_METADATA = {

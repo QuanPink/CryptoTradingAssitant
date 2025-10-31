@@ -221,12 +221,12 @@ class AccumulationAnalyzer:
             f"💤 *PHÁT HIỆN TÍCH LUỸ*\n"
             f"━━━━━━━━━━━━━━━━━━\n\n"
             f"🪙 *{symbol}*\n"
-            f"⏱ Timeframe: *{tf_meta['label']}* {tf_meta['style']}\n\n"
+            f"⏱ {tf_meta['style']} ({tf_meta['label']})\n\n"
             f"💰 Giá hiện tại: `{price:.6f}`\n"
             f"🔴 Kháng cự: `{upper:.6f}`\n"
             f"🟢 Hỗ trợ: `{lower:.6f}`\n\n"
             f"📊 Độ rộng *{width_pct:.2f}%* • Vị trí *{position:.0f}%*\n"
-            f"⏳ Thời gian: *{duration:.1f}h*\n"
+            f"⏳ Tích luỹ *{duration:.1f}h* • {strength}\n\n"
             f"💪 Độ mạnh: {strength}\n\n"
         )
         return msg
