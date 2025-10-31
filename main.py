@@ -16,7 +16,7 @@ def main():
     logger.info("Starting Crypto Trading Assistant")
     logger.info(f"Exchange: {settings.EXCHANGE_ID}")
     logger.info(f"Symbols: {settings.SYMBOLS}")
-    logger.info(f"Timeframe: {settings.TIMEFRAME}")
+    logger.info(f"Timeframes: {settings.TIMEFRAMES}")
     logger.info("=" * 60)
 
     # Initialize exchange
@@ -36,7 +36,7 @@ def main():
     notifier.send_message(
         f"🤖 *Bot Started*\n"
         f"Monitoring: {', '.join(settings.SYMBOLS)}\n"
-        f"Timeframe: {settings.TIMEFRAME}"
+        f"Timeframes: {settings.TIMEFRAMES}"
     )
 
     # Align to next candle close
