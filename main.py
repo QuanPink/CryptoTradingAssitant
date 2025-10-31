@@ -1,7 +1,5 @@
 import time
 
-import ccxt
-
 from config.setting import settings
 from health import start_health_server
 from src.analyzers.accumulation import AccumulationAnalyzer
@@ -18,15 +16,6 @@ def main():
 
     start_health_server(port=8080)
 
-    logger.info(f"Exchange: {settings.EXCHANGE_ID}")
-    logger.info(f"Symbols: {settings.SYMBOLS}")
-    logger.info(f"Timeframes: {', '.join(settings.TIMEFRAMES)}")
-    logger.info("=" * 60)
-
-    # Initialize exchange
-    exchange_class = getattr(ccxt, settings.EXCHANGE_ID)
-    exchange = exchange_class({'enableRateLimit': True})
-
     # Initialize notifier
     notifier = TelegramNotifier(
         settings.TELEGRAM_BOT_TOKEN,
@@ -34,13 +23,26 @@ def main():
     )
 
     # Initialize analyzer
-    analyzer = AccumulationAnalyzer(exchange, notifier)
+    analyzer = AccumulationAnalyzer(notifier)
+
+    # Build startup message with exchange mapping
+    exchange_map_lines = []
+    for symbol in settings.SYMBOLS:
+        exchange_id = analyzer.symbol_exchange_map.get(symbol, 'N/A')
+        exchange_map_lines.append(f"• {symbol}: {exchange_id}")
+
+    exchange_map_str = "\n".join(exchange_map_lines)
+
+    logger.info(f"Exchanges: {', '.join(settings.EXCHANGES)}")
+    logger.info(f"Symbols: {settings.SYMBOLS}")
+    logger.info(f"Timeframes: {', '.join(settings.TIMEFRAMES)}")
+    logger.info("=" * 60)
 
     # Send startup notification
     notifier.send_message(
-        f"🤖 *Bot Started*\n"
-        f"Monitoring: {', '.join(settings.SYMBOLS)}\n"
-        f"Timeframes: {', '.join(settings.TIMEFRAMES)}"
+        f"🤖 *Bot Started*\n\n"
+        f"*Symbol Mapping:*\n{exchange_map_str}\n\n"
+        f"*Timeframes:* {', '.join(settings.TIMEFRAMES)}"
     )
 
     # Align to next candle close
