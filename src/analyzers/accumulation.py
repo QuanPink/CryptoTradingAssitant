@@ -16,27 +16,233 @@ logger = setup_logger(__name__)
 class AccumulationAnalyzer:
     """Detect and track accumulation zones with improved logic"""
 
-    def __init__(self, exchange: ccxt.Exchange, notifier: TelegramNotifier):
-        self.exchange = exchange
+    def __init__(self, notifier: TelegramNotifier):
         self.notifier = notifier
         self.timeframes = settings.TIMEFRAMES
         self.lookback_windows = [12, 24]
         self.zones: Dict[str, Dict[str, Dict]] = {}
+
+        # Initialize multiple exchanges
+        self.exchanges = {}
+        self._initialize_exchanges()
+
+        # Markets cache: exchange_name → set of symbols
+        self.markets_cache = {}
+
+        # Symbol mapping: symbol → exchange_name
+        self.symbol_exchange_map = {}
+
+        # Load markets and build mapping
+        self._load_all_markets()
+        self._build_symbol_map()
+
+    def _initialize_exchanges(self):
+        """Initialize all configured exchanges"""
+        for exchange_id in settings.EXCHANGES:
+            try:
+                exchange_class = getattr(ccxt, exchange_id)
+                self.exchanges[exchange_id] = exchange_class({
+                    'enableRateLimit': True
+                })
+                logger.info(f"✅ Initialized {exchange_id} exchange")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize {exchange_id}: {e}")
+
+    def _load_all_markets(self):
+        """Load available markets from all exchanges"""
+        logger.info("Loading markets from all exchanges...")
+
+        for exchange_id, exchange in self.exchanges.items():
+            try:
+                markets = exchange.load_markets()
+                # Store as set of symbols for fast lookup
+                self.markets_cache[exchange_id] = set(markets.keys())
+                logger.info(f"✅ Loaded {len(markets)} markets from {exchange_id}")
+            except Exception as e:
+                logger.error(f"❌ Failed to load markets from {exchange_id}: {e}")
+                self.markets_cache[exchange_id] = set()
+
+    def _build_symbol_map(self):
+        """
+        Build symbol → exchange mapping with priority
+
+        Priority: First exchange in EXCHANGES list gets priority
+        Example: If EXCHANGES=['binance', 'bybit']
+        - Try binance first
+        - If not found, try bybit
+        - If still not found, mark as unavailable
+        """
+        logger.info(f"Building symbol mapping for {len(settings.SYMBOLS)} symbols...")
+
+        for symbol in settings.SYMBOLS:
+            found = False
+
+            # Try exchanges in priority order
+            for exchange_id in settings.EXCHANGES:
+                if symbol in self.markets_cache.get(exchange_id, set()):
+                    self.symbol_exchange_map[symbol] = exchange_id
+
+                    # Log with priority indication
+                    if exchange_id == settings.EXCHANGES[0]:
+                        logger.info(f"✅ {symbol} → {exchange_id} (primary)")
+                    else:
+                        logger.info(f"✅ {symbol} → {exchange_id} (fallback)")
+
+                    found = True
+                    break  # Found, stop checking other exchanges
+
+            if not found:
+                logger.warning(f"⚠️ {symbol} → NOT AVAILABLE on any exchange")
+
+    @staticmethod
+    def _calculate_volume_spike_dual_window(df: pd.DataFrame, timeframe: str) -> tuple[bool, float, float]:
+        """
+        Dual-window volume spike detection
+
+        Compares current volume against:
+        - Short-term baseline (recent trend)
+        - Medium-term baseline (overall context)
+
+        Args:
+            df: OHLCV dataframe
+            timeframe: Current timeframe
+
+        Returns:
+            (is_spike, short_ratio, medium_ratio)
+        """
+
+        current_vol = float(df['volume'].iloc[-1])
+
+        # Get timeframe-specific settings
+        short_window = settings.get_tf_setting(timeframe, 'vol_lookback_short')
+        medium_window = settings.get_tf_setting(timeframe, 'vol_lookback_medium')
+        short_mult = settings.get_tf_setting(timeframe, 'vol_spike_short_mult')
+        medium_mult = settings.get_tf_setting(timeframe, 'vol_spike_medium_mult')
+
+        # Ensure we have enough data
+        short_window = min(short_window, len(df) - 1)
+        medium_window = min(medium_window, len(df) - 1)
+
+        # Calculate baseline volumes (exclude current candle)
+        vol_short_mean = float(df['volume'].iloc[-short_window - 1:-1].mean())
+        vol_medium_mean = float(df['volume'].iloc[-medium_window - 1:-1].mean())
+
+        # Avoid division by zero
+        if vol_short_mean == 0 or vol_medium_mean == 0:
+            return False, 0.0, 0.0
+
+        # Calculate ratios
+        short_ratio = current_vol / vol_short_mean
+        medium_ratio = current_vol / vol_medium_mean
+
+        # Dual confirmation: must exceed BOTH thresholds
+        is_spike = (short_ratio > short_mult) and (medium_ratio > medium_mult)
+
+        logger.debug(
+            f'{timeframe} Volume check: short={short_ratio:.2f}x (need >{short_mult}x), '
+            f'medium={medium_ratio:.2f}x (need >{medium_mult}x), spike={is_spike}'
+        )
+
+        return is_spike, short_ratio, medium_ratio
+
+    def _check_higher_tf_consensus(self, symbol: str, direction: str, current_tf: str) -> Dict:
+        """
+        Check multi-timeframe consensus for signal quality
+
+        Returns:
+            {
+                'consensus': bool,
+                'score': int,
+                'total': int,
+                'aligned_tfs': List[str],
+                'quality': str
+            }
+        """
+
+        if symbol not in self.zones:
+            return {
+                'consensus': False,
+                'score': 0,
+                'total': 0,
+                'aligned_tfs': [],
+                'quality': 'weak'
+            }
+
+        tf_order = {'5m': 0, '15m': 1, '30m': 2, '1h': 3}
+        current_priority = tf_order.get(current_tf, 0)
+
+        aligned_tfs = []
+        total_higher_tfs = 0
+
+        # Check all higher timeframes
+        for tf, zone in self.zones[symbol].items():
+            tf_priority = tf_order.get(tf, 0)
+
+            if tf_priority > current_priority:
+                total_higher_tfs += 1
+
+                # Check if this TF is breaking in same direction (merged logic)
+                breakout_key = 'breakout_up' if direction == "up" else 'breakout_down'
+                if zone.get(breakout_key):
+                    aligned_tfs.append(tf)
+
+        score = len(aligned_tfs)
+
+        # Get required consensus for this timeframe
+        required = settings.get_tf_setting(current_tf, 'consensus_required')
+        consensus = score >= required
+
+        # Determine quality based on alignment
+        if score >= 3:
+            quality = 'excellent'
+        elif score >= 2:
+            quality = 'good'
+        elif score >= 1:
+            quality = 'medium'
+        else:
+            quality = 'weak'
+
+        logger.debug(
+            f'{symbol} {current_tf} {direction} - Consensus: {score}/{total_higher_tfs} '
+            f'(need >={required}), quality={quality}'
+        )
+
+        return {
+            'consensus': consensus,
+            'score': score,
+            'total': total_higher_tfs,
+            'aligned_tfs': aligned_tfs,
+            'quality': quality
+        }
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = None) -> Optional[pd.DataFrame]:
         """Fetch OHLCV data for symbol"""
         if limit is None:
             limit = settings.FETCH_LIMIT
 
+        # Get exchange for this symbol
+        exchange_id = self.symbol_exchange_map.get(symbol)
+
+        if not exchange_id:
+            logger.error(f'[SKIP] {symbol} not available on any exchange')
+            return None
+
+        exchange = self.exchanges[exchange_id]
+
         try:
-            ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
             return ohlcv_to_df(ohlcv)
         except Exception as e:
-            logger.error(f'Error fetching {timeframe} OHLCV for {symbol}: {e}')
+            logger.error(f'Error fetching {timeframe} OHLCV for {symbol} from {exchange_id}: {e}')
             return None
 
     def detect_accumulation(self, df: pd.DataFrame, timeframe: str) -> Optional[Dict]:
-        """Detect if market is in accumulation phase"""
+        """Detect if market is in accumulation phase with timeframe-specific thresholds"""
+
+        # Get timeframe-specific thresholds
+        atr_threshold = settings.get_tf_setting(timeframe, 'atr_threshold')
+        vol_threshold = settings.get_tf_setting(timeframe, 'vol_ratio_threshold')
+        range_threshold = settings.get_tf_setting(timeframe, 'price_range_threshold')
 
         # Calculate ATR ratio
         atr_series = atr(df, period=14)
@@ -66,15 +272,19 @@ class AccumulationAnalyzer:
             # Calculate Bollinger Band width
             bbw = bollinger_band_width(df, period=lookback).iloc[-1]
 
-            # Check conditions
-            cond_atr = atr_ratio < settings.ATR_RATIO_THRESHOLD
-            cond_vol = vol_ratio < settings.VOL_RATIO_THRESHOLD
-            cond_range = price_range < settings.PRICE_RANGE_THRESHOLD
-            cond_bbw = bbw < settings.PRICE_RANGE_THRESHOLD * 2
+            # Check conditions with timeframe-specific thresholds
+            cond_atr = atr_ratio < atr_threshold
+            cond_vol = vol_ratio < vol_threshold
+            cond_range = price_range < range_threshold
+            cond_bbw = bbw < range_threshold * 2
 
             logger.debug(
+                f'{timeframe} - Thresholds: atr={atr_threshold:.4f}, vol={vol_threshold:.2f}, '
+                f'range={range_threshold:.4f}\n'
+                f'{timeframe} - Values: atr={atr_ratio:.6f}, vol={vol_ratio:.2f}, '
+                f'range={price_range:.6f}, bbw={bbw:.6f}\n'
                 f'{timeframe} - Conditions: atr={cond_atr}, vol={cond_vol}, '
-                f'range={cond_range}, bbw={bbw:.6f}, atr_ratio={atr_ratio:.6f}'
+                f'range={cond_range}, bbw={cond_bbw}'
             )
 
             if cond_atr and cond_vol and cond_range and cond_bbw:
@@ -93,6 +303,78 @@ class AccumulationAnalyzer:
                     'timeframe': timeframe
                 }
         return None
+
+    def _is_confirmed_breakout(self, df: pd.DataFrame, level: float, direction: str,
+                               timeframe: str) -> tuple[bool, str]:
+        """
+        Multifactor breakout confirmation
+
+        Factors:
+        1. Price stays above/below level for N bars
+        2. Volume spike confirmation
+        3. Strong candle bodies (not wicks)
+        4. Distance from breakout level
+
+        Returns:
+            (is_confirmed, quality)
+            quality: 'strong', 'medium', 'weak', 'rejected'
+        """
+
+        buffer = settings.get_tf_setting(timeframe, 'breakout_buffer')
+        confirmation_bars = settings.get_tf_setting(timeframe, 'confirmation_bars')
+
+        # Factor 1: Price confirmation
+        if direction == "up":
+            breakout_level = level * (1 + buffer)
+            closes = df['close'].iloc[-confirmation_bars:]
+            price_confirmed = all(closes > breakout_level)
+            avg_close = closes.mean()
+            distance = (avg_close - level) / level
+        else:
+            breakout_level = level * (1 - buffer)
+            closes = df['close'].iloc[-confirmation_bars:]
+            price_confirmed = all(closes < breakout_level)
+            distance = (level - closes.mean()) / level
+
+        # Factor 2: Volume confirmation (only need vol_spike)
+        vol_spike, _, _ = self._calculate_volume_spike_dual_window(df, timeframe)
+
+        # Factor 3: Body size (strong candles vs wicks)
+        recent_candles = df.iloc[-confirmation_bars:]
+        body_sizes = abs(recent_candles['close'] - recent_candles['open'])
+        candle_ranges = recent_candles['high'] - recent_candles['low']
+        avg_body_ratio = (body_sizes / candle_ranges).mean()
+        strong_candles = avg_body_ratio > 0.6
+
+        # Scoring system (max 4 points)
+        score = sum([
+            price_confirmed,
+            vol_spike,
+            strong_candles,
+            distance > buffer * 2
+        ])
+
+        # Quality rating based on score
+        if score >= 4:
+            quality = 'strong'
+            is_confirmed = True
+        elif score >= 3:
+            quality = 'medium'
+            is_confirmed = True
+        elif score >= 2:
+            quality = 'weak'
+            is_confirmed = True
+        else:
+            quality = 'rejected'
+            is_confirmed = False
+
+        logger.debug(
+            f'Breakout confirmation: price={price_confirmed}, vol={vol_spike}, '
+            f'candles={strong_candles}, distance={distance:.4f}, '
+            f'score={score}/4, quality={quality}'
+        )
+
+        return is_confirmed, quality
 
     @staticmethod
     def _calculate_tp_sl(entry_price: float, direction: str, zone: Dict) -> Dict:
@@ -259,8 +541,11 @@ class AccumulationAnalyzer:
         return msg
 
     def _format_breakout_message(self, symbol: str, timeframe: str, price: float, direction: str,
-                                 zone: Dict, vol_spike: bool, vol_ratio: float) -> str:
-        """Format breakout alert message with TP/SL"""
+                                 zone: Dict, vol_spike: bool, short_ratio: float,
+                                 medium_ratio: float, consensus: Dict,
+                                 breakout_quality: str = 'medium') -> str:
+        """Format breakout message with all quality indicators"""
+
         tf_meta = settings.TIMEFRAME_METADATA[timeframe]
 
         if direction == "up":
@@ -275,34 +560,55 @@ class AccumulationAnalyzer:
             level_name = "Hỗ trợ"
 
         breakout_pct = abs(price - level) / level * 100
-
-        # Calculate TP/SL
         setup = self._calculate_tp_sl(price, direction, zone)
-
-        # Check if aligned with higher timeframes
-        higher_tf_confirm = self._check_higher_tf_alignment(symbol, direction, timeframe)
 
         msg = (
             f"{emoji} *{title}*\n"
             f"━━━━━━━━━━━━━━━━━━\n\n"
-            f"🪙 *{symbol}*\n\n"
-            f"⏱ Timeframe: *{tf_meta['label']}* {tf_meta['style']}\n\n"
-            f"💰 Giá hiện tại: `{price:.6f}`\n"
+            f"🪙 *{symbol}*\n"
+            f"⏱ {tf_meta['style']} ({tf_meta['label']})\n\n"
+            f"💰 Giá: `{price:.6f}`\n"
             f"🎯 {level_name}: `{level:.6f}`\n"
             f"📈 Breakout: *{breakout_pct:.2f}%*\n\n"
-            f"📦 Volume: *x{vol_ratio:.1f}* "
+            f"📦 Volume: *{short_ratio:.1f}x* / *{medium_ratio:.1f}x* "
         )
 
-        # Volume assessment
         if vol_spike:
             msg += "✅\n"
 
-            # Higher TF confirmation
-            if higher_tf_confirm:
-                msg += "✅ _Confirm TF cao hơn_\n"
+            # Breakout quality
+            quality_emoji_breakout = {
+                'strong': '🔥',
+                'medium': '🟢',
+                'weak': '🟡'
+            }
 
             msg += (
-                f"\n━━━━━━━━━━━━━━━━━━\n"
+                f"{quality_emoji_breakout.get(breakout_quality, '🟡')} "
+                f"*Độ mạnh breakout: {breakout_quality.upper()}*\n"
+            )
+
+            # Multi-TF consensus
+            if consensus['score'] > 0:
+                quality_emoji = {
+                    'excellent': '🟢',
+                    'good': '🟢',
+                    'medium': '🟡',
+                    'weak': '⚠️'
+                }
+
+                msg += (
+                    f"{quality_emoji[consensus['quality']]} "
+                    f"*Đồng thuận: {consensus['score']}/{consensus['total']} TFs*"
+                )
+
+                if consensus['aligned_tfs']:
+                    msg += f" _({', '.join(consensus['aligned_tfs'])})_"
+
+                msg += "\n"
+
+            msg += (
+                f"━━━━━━━━━━━━━━━━━━\n"
                 f"🎯 *GỢI Ý SETUP*\n\n"
                 f"📍 Entry: `{setup['entry']:.6f}`\n"
                 f"🛑 SL: `{setup['sl']:.6f}` _(-{setup['risk_pct']:.2f}%)_\n"
@@ -311,35 +617,20 @@ class AccumulationAnalyzer:
                 f"⏱ {tf_meta['hold_time']} • Risk {tf_meta['risk']}\n\n"
             )
 
-            if higher_tf_confirm:
-                msg += "✅ _Setup chất lượng cao_\n"
-            else:
-                msg += "🟡 _Setup tốt (chưa confirm TF cao)_\n"
+            # Quality-based recommendation
+            if consensus['quality'] == 'excellent':
+                msg += "🟢 _Setup uy tín CỰC CAO_\n"
+            elif consensus['quality'] == 'good':
+                msg += "🟢 _Setup uy tín cao_\n"
+            elif consensus['quality'] == 'medium':
+                msg += "🟡 _Setup tốt_\n"
 
+            msg += "⚠️ _Tự kiểm tra trước khi vào_"
         else:
             msg += "⚠️\n\n"
             msg += "⚠️ *VOLUME KHÔNG XÁC NHẬN*"
 
         return msg
-
-    def _check_higher_tf_alignment(self, symbol: str, direction: str, current_tf: str) -> bool:
-        """Check if breakout aligns with higher timeframes"""
-        if symbol not in self.zones:
-            return False
-
-        # Timeframe priority (higher = more important)
-        tf_order = {'5m': 0, '15m': 1, '30m': 2, '1h': 3}
-        current_priority = tf_order.get(current_tf, 0)
-
-        # Check higher timeframes
-        for tf, zone in self.zones[symbol].items():
-            if tf_order.get(tf, 0) > current_priority:
-                # Check if also breaking out on higher TF
-                if (direction == "up" and zone.get('breakout_up')) or \
-                        (direction == "down" and zone.get('breakout_down')):
-                    return True
-
-        return False
 
     def check_symbol(self, symbol: str):
         """Check symbol across all timeframes"""
@@ -360,7 +651,7 @@ class AccumulationAnalyzer:
 
         close_price = float(df['close'].iloc[-1])
 
-        # 1) Detect accumulation
+        # 1) Detect accumulation (now with symbol parameter)
         zone_info = self.detect_accumulation(df, timeframe)
 
         if zone_info is not None:
@@ -384,7 +675,7 @@ class AccumulationAnalyzer:
                 logger.info(f"[ACCUMULATION] {symbol} {timeframe}")
                 self.notifier.send_message(msg)
 
-        # 2) Check proximity and breakout if zone exists
+        # 2) Check breakout if zone exists
         if symbol not in self.zones or timeframe not in self.zones[symbol]:
             logger.debug(f"[NO ZONE] {symbol} {timeframe}")
             return
@@ -399,10 +690,7 @@ class AccumulationAnalyzer:
             self.clear_zone(symbol, timeframe)
             return
 
-        # Check proximity to support/resistance
-        # self._check_proximity(symbol, timeframe, close_price, upper, lower, zone)
-
-        # Check breakout
+        # Check breakout (now passing df)
         self._check_breakout(symbol, timeframe, df, close_price, upper, lower, zone)
 
     # def _check_proximity(self, symbol: str, timeframe: str, price: float,
@@ -427,36 +715,111 @@ class AccumulationAnalyzer:
 
     def _check_breakout(self, symbol: str, timeframe: str, df: pd.DataFrame, price: float,
                         upper: float, lower: float, zone: Dict):
-        """Check for breakout from accumulation zone"""
-        breakout_up = price > upper * (1 + 0.001)  # 0.1% buffer
-        breakout_down = price < lower * (1 - 0.001)
+        """Check for breakout with multifactor confirmation"""
 
-        # Calculate volume spike
-        recent_vol = float(df['volume'].iloc[-1])
-        lookback = min(24, len(df))
-        vol_mean = float(df['volume'].iloc[-lookback:].mean())
-        vol_ratio = recent_vol / vol_mean if vol_mean > 0 else 1.0
-        vol_spike = recent_vol > settings.VOL_SPIKE_MULTIPLIER * vol_mean
+        buffer = settings.get_tf_setting(timeframe, 'breakout_buffer')
 
-        # Breakout up
+        breakout_up = price > upper * (1 + buffer)
+        breakout_down = price < lower * (1 - buffer)
+
+        # Check breakout up
         if breakout_up and not zone.get('breakout_up', False) and \
                 not self.was_recent(zone.get('last_breakout_notified'), settings.BREAKOUT_COOLDOWN_MIN):
-            msg = self._format_breakout_message(symbol, timeframe, price, "up", zone, vol_spike, vol_ratio)
-            logger.info(f"[BREAKOUT UP] {symbol} {timeframe}")
+
+            # Multi-factor confirmation
+            is_confirmed, breakout_quality = self._is_confirmed_breakout(df, upper, "up", timeframe)
+
+            if is_confirmed:
+                # Get volume metrics for message
+                vol_spike, short_ratio, medium_ratio = self._calculate_volume_spike_dual_window(df, timeframe)
+
+                self._handle_breakout_up(
+                    symbol, timeframe, price, zone,
+                    vol_spike, short_ratio, medium_ratio,
+                    breakout_quality  # Pass quality
+                )
+
+        # Check breakout down
+        elif breakout_down and not zone.get('breakout_down', False) and \
+                not self.was_recent(zone.get('last_breakout_notified'), settings.BREAKOUT_COOLDOWN_MIN):
+
+            is_confirmed, breakout_quality = self._is_confirmed_breakout(df, lower, "down", timeframe)
+
+            if is_confirmed:
+                vol_spike, short_ratio, medium_ratio = self._calculate_volume_spike_dual_window(df, timeframe)
+
+                self._handle_breakout_down(
+                    symbol, timeframe, price, zone,
+                    vol_spike, short_ratio, medium_ratio,
+                    breakout_quality
+                )
+
+        # Clear zone after cooldown
+        if (zone.get('breakout_up') or zone.get('breakout_down')) and \
+                not self.was_recent(zone.get('last_breakout_notified'), settings.BREAKOUT_COOLDOWN_MIN):
+            self.clear_zone(symbol, timeframe)
+
+    def _handle_breakout_up(self, symbol: str, timeframe: str, price: float, zone: Dict,
+                            vol_spike: bool, short_ratio: float, medium_ratio: float,
+                            breakout_quality: str = 'medium'):  # Add breakout_quality
+        """Handle breakout up with quality filtering"""
+
+        consensus = self._check_higher_tf_consensus(symbol, "up", timeframe)
+
+        # Combined quality check
+        if consensus['quality'] in ['excellent', 'good', 'medium']:
+            msg = self._format_breakout_message(
+                symbol, timeframe, price, "up", zone,
+                vol_spike, short_ratio, medium_ratio, consensus,
+                breakout_quality  # Pass to message
+            )
+
+            logger.info(
+                f"[BREAKOUT UP] {symbol} {timeframe}\n"
+                f"  Breakout Quality: {breakout_quality}\n"
+                f"  Volume: {short_ratio:.2f}x / {medium_ratio:.2f}x\n"
+                f"  Consensus: {consensus['score']}/{consensus['total']} ({consensus['quality']})\n"
+                f"  Aligned TFs: {', '.join(consensus['aligned_tfs']) or 'none'}"
+            )
+
             self.notifier.send_message(msg)
             zone['breakout_up'] = True
             zone['last_breakout_notified'] = pd.Timestamp.utcnow()
+        else:
+            logger.info(
+                f"[BREAKOUT FILTERED] {symbol} {timeframe} - "
+                f"Low consensus: {consensus['quality']}"
+            )
 
-        # Breakout down
-        elif breakout_down and not zone.get('breakout_down', False) and \
-                not self.was_recent(zone.get('last_breakout_notified'), settings.BREAKOUT_COOLDOWN_MIN):
-            msg = self._format_breakout_message(symbol, timeframe, price, "down", zone, vol_spike, vol_ratio)
-            logger.info(f"[BREAKOUT DOWN] {symbol} {timeframe}")
+    def _handle_breakout_down(self, symbol: str, timeframe: str, price: float, zone: Dict,
+                              vol_spike: bool, short_ratio: float, medium_ratio: float,
+                              breakout_quality: str = 'medium'):
+        """Handle breakout down with quality filtering"""
+
+        consensus = self._check_higher_tf_consensus(symbol, "down", timeframe)
+
+        # Combined quality check
+        if consensus['quality'] in ['excellent', 'good', 'medium']:
+            msg = self._format_breakout_message(
+                symbol, timeframe, price, "down", zone,
+                vol_spike, short_ratio, medium_ratio, consensus,
+                breakout_quality
+            )
+
+            logger.info(
+                f"[BREAKOUT DOWN] {symbol} {timeframe}\n"
+                f"  Breakout Quality: {breakout_quality}\n"
+                f"  Volume: {short_ratio:.2f}x / {medium_ratio:.2f}x\n"
+                f"  Consensus: {consensus['score']}/{consensus['total']} ({consensus['quality']})\n"
+                f"  Aligned TFs: {', '.join(consensus['aligned_tfs']) or 'none'}"
+            )
+
             self.notifier.send_message(msg)
             zone['breakout_down'] = True
             zone['last_breakout_notified'] = pd.Timestamp.utcnow()
 
-        # Clear zone after breakout cooldown expires
-        if (zone.get('breakout_up') or zone.get('breakout_down')) and \
-                not self.was_recent(zone.get('last_breakout_notified'), settings.BREAKOUT_COOLDOWN_MIN):
-            self.clear_zone(symbol, timeframe)
+        else:
+            logger.info(
+                f"[BREAKOUT FILTERED] {symbol} {timeframe} - "
+                f"Low consensus: {consensus['quality']}"
+            )
