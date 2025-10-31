@@ -68,7 +68,7 @@ TELEGRAM_BOT_TOKEN=your_bot_token_here
 TELEGRAM_CHAT_ID=your_chat_id_here
 
 # Symbols to monitor
-SYMBOLS=BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT
+SYMBOLS=BTC/USDT,ETH/USDT,BNB/USDT,SOL/USDT,HYPE/USDT
 
 # Timeframes
 TIMEFRAMES=5m,15m,30m,1h
@@ -165,7 +165,7 @@ flyctl logs -f
 
 ### Exchange
 ```bash
-EXCHANGE_ID=binance          # Exchange (binance, bybit, etc)
+EXCHANGES=binance          # Exchange (binance, bybit, etc)
 SYMBOLS=BTC/USDT,ETH/USDT   # Symbols to monitor
 TIMEFRAMES=5m,15m,30m,1h    # Timeframes to analyze
 ```
