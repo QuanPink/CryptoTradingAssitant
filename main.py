@@ -1,7 +1,7 @@
 """Main entry point for Crypto Trading Assistant"""
 from config.setting import settings
 from health import start_health_server
-from src.analyzers.accumulation_analyzer import AccumulationAnalyzer  # ← FIX
+from src.analyzers.accumulation_analyzer import AccumulationAnalyzer
 from src.notifiers.telegram import TelegramNotifier
 from src.utils.logger import setup_logger
 
