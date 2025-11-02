@@ -222,5 +222,45 @@ class Settings:
         )
         return symbol_thresholds.get(timeframe, {'min': 0.001, 'max': 0.015})
 
+    # Enable/disable caching
+    ENABLE_DATA_CACHE: bool = os.getenv('ENABLE_DATA_CACHE', 'true').lower() == 'true'
+
+    # Timeframe to seconds mapping
+    TIMEFRAME_TO_SECONDS = {
+        '5m': 300,
+        '15m': 900,
+        '30m': 1800,
+        '1h': 3600
+    }
+
+    # Cache refresh intervals (Pure Optimal Strategy)
+    CACHE_REFRESH_INTERVALS = {
+        '5m': 900,  # 15 minutes (3x candle period)
+        '15m': 1800,  # 30 minutes (2x candle period)
+        '30m': 2700,  # 45 minutes (1.5x candle period)
+        '1h': 3600  # 60 minutes (1x candle period)
+    }
+
+    # Incremental fetch limits (how many recent candles to fetch)
+    INCREMENTAL_FETCH_LIMITS = {
+        '5m': 3,  # Fetch 3 recent candles
+        '15m': 3,  # Fetch 3 recent candles
+        '30m': 2,  # Fetch 2 recent candles
+        '1h': 2  # Fetch 2 recent candles
+    }
+
+    # Cache validation settings
+    CACHE_VERIFY_TOLERANCE: float = 0.0001  # 0.01% price difference tolerance
+
+    @classmethod
+    def get_cache_refresh_interval(cls, timeframe: str) -> int:
+        """Get cache refresh interval for timeframe"""
+        return cls.CACHE_REFRESH_INTERVALS.get(timeframe, 900)
+
+    @classmethod
+    def get_incremental_fetch_limit(cls, timeframe: str) -> int:
+        """Get incremental fetch limit for timeframe"""
+        return cls.INCREMENTAL_FETCH_LIMITS.get(timeframe, 3)
+
 
 settings = Settings()

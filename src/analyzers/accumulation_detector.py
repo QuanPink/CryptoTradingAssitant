@@ -36,9 +36,12 @@ class AccumulationDetector:
     @staticmethod
     def _check_window(df, lookback, symbol, timeframe):
         """Check single lookback window"""
-        window = df.iloc[-lookback:]
-        upper = window['high'].max()
-        lower = window['low'].min()
+        high = df['high'].values[-lookback:]
+        low = df['low'].values[-lookback:]
+        close = df['close'].values[-lookback:]
+
+        upper = np.max(high)
+        lower = np.min(low)
 
         # Core checks
         range_ok, range_pct, range_quality = AccumulationDetector._check_price_range(
@@ -46,7 +49,7 @@ class AccumulationDetector:
         )
 
         breakout_ok, breakout_ratio = AccumulationDetector._check_breakout_ratio(
-            df, lookback, upper, lower, timeframe
+            close, upper, lower, timeframe
         )
 
         volume_ok, vol_ratio = AccumulationDetector._check_volume_suppression(
@@ -114,31 +117,24 @@ class AccumulationDetector:
         return is_valid, range_pct, quality
 
     @staticmethod
-    def _check_breakout_ratio(df: pd.DataFrame, lookback: int,
-                              upper: float, lower: float, timeframe: str) -> tuple[bool, float]:
+    def _check_breakout_ratio(close: np.ndarray, upper: float, lower: float, timeframe: str) -> tuple[bool, float]:
         """
         Check that most candles stay within range
 
         Returns:
             (is_valid, breakout_ratio)
         """
-        window = df.iloc[-lookback:]
 
-        breakout_count = 0
-        for i in range(len(window)):
-            close = window.iloc[i]['close']
+        # Vectorized operation (much faster than loop)
+        breakout_count = np.sum((close > upper * 1.001) | (close < lower * 0.999))
 
-            # Allow 0.1% wick, but close must be inside
-            if close > upper * 1.001 or close < lower * 0.999:
-                breakout_count += 1
-
-        breakout_ratio = breakout_count / len(window)
+        breakout_ratio = breakout_count / len(close)
         max_breakout = settings.get_tf_setting(timeframe, 'max_breakout_ratio')
 
         is_valid = breakout_ratio <= max_breakout
 
         logger.debug(
-            f'Breakout: {breakout_count}/{len(window)} '
+            f'Breakout: {breakout_count}/{len(close)} '
             f'({breakout_ratio:.1%}) vs max {max_breakout:.1%} '
             f'→ {"PASS" if is_valid else "FAIL"}'
         )
