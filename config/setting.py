@@ -1,6 +1,6 @@
 """Configuration management"""
 import os
-from typing import List
+from typing import List, Dict
 
 from dotenv import load_dotenv
 
@@ -20,15 +20,6 @@ class Settings:
     FETCH_LIMIT: int = int(os.getenv('FETCH_LIMIT', '50'))
     POLL_INTERVAL: int = int(os.getenv('POLL_INTERVAL', '60'))
 
-    # Accumulation thresholds
-    ATR_RATIO_THRESHOLD: float = float(os.getenv('ATR_RATIO_THRESHOLD', '0.002'))
-    VOL_RATIO_THRESHOLD: float = float(os.getenv('VOL_RATIO_THRESHOLD', '0.7'))
-    PRICE_RANGE_THRESHOLD: float = float(os.getenv('PRICE_RANGE_THRESHOLD', '0.008'))
-
-    # Proximity & Breakout
-    PROXIMITY_THRESHOLD: float = float(os.getenv('PROXIMITY_THRESHOLD', '0.002'))
-    VOL_SPIKE_MULTIPLIER: float = float(os.getenv('VOL_SPIKE_MULTIPLIER', '1.5'))
-
     # Telegram
     TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
     TELEGRAM_CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID', '')
@@ -42,14 +33,70 @@ class Settings:
     # Logging
     LOG_LEVEL: str = os.getenv('LOG_LEVEL', 'INFO')
 
-    # Timeframe-specific parameters
+    # Monitoring & Performance
+    MONITORING_INTERVAL: int = int(os.getenv('MONITORING_INTERVAL', '300'))
+    HEALTH_CHECK_INTERVAL: int = int(os.getenv('HEALTH_CHECK_INTERVAL', '1800'))
+    MAX_MEMORY_MB: int = int(os.getenv('MAX_MEMORY_MB', '512'))
+
+    # Circuit Breaker
+    CIRCUIT_BREAKER_FAILURES: int = int(os.getenv('CIRCUIT_BREAKER_FAILURES', '5'))
+    CIRCUIT_BREAKER_TIMEOUT_MIN: int = int(os.getenv('CIRCUIT_BREAKER_TIMEOUT_MIN', '30'))
+
+    # Retry
+    MAX_RETRIES: int = int(os.getenv('MAX_RETRIES', '3'))
+    RETRY_DELAY_BASE: int = int(os.getenv('RETRY_DELAY_BASE', '2'))
+
+    # ═══════════════════════════════════════════════════════════
+    # SYMBOL-SPECIFIC ACCUMULATION RANGE THRESHOLDS
+    # ═══════════════════════════════════════════════════════════
+
+    ACCUMULATION_RANGE_THRESHOLDS = {
+        'BTC/USDT': {
+            '5m': {'min': 0.0008, 'max': 0.0035},  # 0.08% - 0.35%
+            '15m': {'min': 0.0025, 'max': 0.0065},  # 0.25% - 0.65%
+            '30m': {'min': 0.0040, 'max': 0.0095},  # 0.40% - 0.95%
+            '1h': {'min': 0.0070, 'max': 0.0160}  # 0.70% - 1.60%
+        },
+        'ETH/USDT': {
+            '5m': {'min': 0.0010, 'max': 0.0040},  # 0.10% - 0.40%
+            '15m': {'min': 0.0030, 'max': 0.0070},  # 0.30% - 0.70%
+            '30m': {'min': 0.0050, 'max': 0.0110},  # 0.50% - 1.10%
+            '1h': {'min': 0.0080, 'max': 0.0180}  # 0.80% - 1.80%
+        },
+        'BNB/USDT': {
+            '5m': {'min': 0.0012, 'max': 0.0045},  # 0.12% - 0.45%
+            '15m': {'min': 0.0035, 'max': 0.0080},  # 0.35% - 0.80%
+            '30m': {'min': 0.0055, 'max': 0.0120},  # 0.55% - 1.20%
+            '1h': {'min': 0.0090, 'max': 0.0200}  # 0.90% - 2.00%
+        },
+        'SOL/USDT': {
+            '5m': {'min': 0.0015, 'max': 0.0060},  # 0.15% - 0.60%
+            '15m': {'min': 0.0040, 'max': 0.0100},  # 0.40% - 1.00%
+            '30m': {'min': 0.0060, 'max': 0.0150},  # 0.60% - 1.50%
+            '1h': {'min': 0.0100, 'max': 0.0250}  # 1.00% - 2.50%
+        },
+        'HYPE/USDT': {
+            '5m': {'min': 0.0015, 'max': 0.0060},  # 0.15% - 0.60%
+            '15m': {'min': 0.0050, 'max': 0.0130},  # 0.50% - 1.30%
+            '30m': {'min': 0.0080, 'max': 0.0200},  # 0.80% - 2.00%
+            '1h': {'min': 0.0130, 'max': 0.0320}  # 1.30% - 3.20%
+        }
+    }
+
+    # Default thresholds for unknown symbols
+    DEFAULT_ACCUMULATION_THRESHOLDS = {
+        '5m': {'min': 0.0015, 'max': 0.0060},
+        '15m': {'min': 0.0040, 'max': 0.0100},
+        '30m': {'min': 0.0060, 'max': 0.0150},
+        '1h': {'min': 0.0100, 'max': 0.0250}
+    }
+
+    # ═══════════════════════════════════════════════════════════
+    # TIMEFRAME-SPECIFIC PARAMETERS
+    # ═══════════════════════════════════════════════════════════
+
     TIMEFRAME_SETTINGS = {
         '5m': {
-            # Detection thresholds
-            'atr_threshold': 0.0025,
-            'vol_ratio_threshold': 0.65,
-            'price_range_threshold': 0.01,
-
             # Volume spike detection
             'vol_spike_short_mult': 2.2,
             'vol_spike_medium_mult': 1.8,
@@ -60,15 +107,16 @@ class Settings:
             'breakout_buffer': 0.001,
             'confirmation_bars': 1,
 
+            # Accumulation detection
+            'lookback_windows': [8, 12, 16],
+            'max_breakout_ratio': 0.10,
+            'volume_suppression_ratio': 1.2,
+
             # Other
             'proximity_threshold': 0.0015,
             'consensus_required': 2
         },
         '15m': {
-            'atr_threshold': 0.0022,
-            'vol_ratio_threshold': 0.68,
-            'price_range_threshold': 0.009,
-
             'vol_spike_short_mult': 2.0,
             'vol_spike_medium_mult': 1.7,
             'vol_lookback_short': 12,
@@ -77,14 +125,14 @@ class Settings:
             'breakout_buffer': 0.0015,
             'confirmation_bars': 1,
 
+            'lookback_windows': [10, 16, 20],
+            'max_breakout_ratio': 0.15,
+            'volume_suppression_ratio': 1.2,
+
             'proximity_threshold': 0.002,
             'consensus_required': 1
         },
         '30m': {
-            'atr_threshold': 0.002,
-            'vol_ratio_threshold': 0.7,
-            'price_range_threshold': 0.008,
-
             'vol_spike_short_mult': 1.8,
             'vol_spike_medium_mult': 1.6,
             'vol_lookback_short': 10,
@@ -93,14 +141,14 @@ class Settings:
             'breakout_buffer': 0.002,
             'confirmation_bars': 2,
 
+            'lookback_windows': [12, 20, 28],
+            'max_breakout_ratio': 0.20,
+            'volume_suppression_ratio': 1.3,
+
             'proximity_threshold': 0.002,
             'consensus_required': 1
         },
         '1h': {
-            'atr_threshold': 0.0018,
-            'vol_ratio_threshold': 0.72,
-            'price_range_threshold': 0.007,
-
             'vol_spike_short_mult': 1.6,
             'vol_spike_medium_mult': 1.5,
             'vol_lookback_short': 8,
@@ -108,6 +156,10 @@ class Settings:
 
             'breakout_buffer': 0.0025,
             'confirmation_bars': 2,
+
+            'lookback_windows': [14, 24, 32],
+            'max_breakout_ratio': 0.25,
+            'volume_suppression_ratio': 1.4,
 
             'proximity_threshold': 0.0025,
             'consensus_required': 1
@@ -155,6 +207,60 @@ class Settings:
         """Get timeframe-specific setting with fallback to 15m"""
         tf_config = cls.TIMEFRAME_SETTINGS.get(timeframe, cls.TIMEFRAME_SETTINGS['15m'])
         return tf_config.get(key, default)
+
+    @classmethod
+    def get_accumulation_range(cls, symbol: str, timeframe: str) -> Dict[str, float]:
+        """
+        Get accumulation range thresholds for symbol and timeframe
+
+        Returns:
+            {'min': float, 'max': float}
+        """
+        symbol_thresholds = cls.ACCUMULATION_RANGE_THRESHOLDS.get(
+            symbol,
+            cls.DEFAULT_ACCUMULATION_THRESHOLDS
+        )
+        return symbol_thresholds.get(timeframe, {'min': 0.001, 'max': 0.015})
+
+    # Enable/disable caching
+    ENABLE_DATA_CACHE: bool = os.getenv('ENABLE_DATA_CACHE', 'true').lower() == 'true'
+
+    # Timeframe to seconds mapping
+    TIMEFRAME_TO_SECONDS = {
+        '5m': 300,
+        '15m': 900,
+        '30m': 1800,
+        '1h': 3600
+    }
+
+    # Cache refresh intervals (Pure Optimal Strategy)
+    CACHE_REFRESH_INTERVALS = {
+        '5m': 900,  # 15 minutes (3x candle period)
+        '15m': 1800,  # 30 minutes (2x candle period)
+        '30m': 2700,  # 45 minutes (1.5x candle period)
+        '1h': 3600  # 60 minutes (1x candle period)
+    }
+
+    # Incremental fetch limits (how many recent candles to fetch)
+    INCREMENTAL_FETCH_LIMITS = {
+        '5m': 3,  # Fetch 3 recent candles
+        '15m': 3,  # Fetch 3 recent candles
+        '30m': 2,  # Fetch 2 recent candles
+        '1h': 2  # Fetch 2 recent candles
+    }
+
+    # Cache validation settings
+    CACHE_VERIFY_TOLERANCE: float = 0.0001  # 0.01% price difference tolerance
+
+    @classmethod
+    def get_cache_refresh_interval(cls, timeframe: str) -> int:
+        """Get cache refresh interval for timeframe"""
+        return cls.CACHE_REFRESH_INTERVALS.get(timeframe, 900)
+
+    @classmethod
+    def get_incremental_fetch_limit(cls, timeframe: str) -> int:
+        """Get incremental fetch limit for timeframe"""
+        return cls.INCREMENTAL_FETCH_LIMITS.get(timeframe, 3)
 
 
 settings = Settings()
