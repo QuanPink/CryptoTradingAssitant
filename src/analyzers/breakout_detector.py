@@ -45,9 +45,6 @@ class BreakoutDetector:
                                timeframe: str) -> Tuple[bool, str]:
         """
         Multifactor breakout confirmation
-
-        Returns:
-            (is_confirmed, quality)
         """
         buffer = settings.get_tf_setting(timeframe, 'breakout_buffer')
         confirmation_bars = settings.get_tf_setting(timeframe, 'confirmation_bars')
@@ -65,45 +62,38 @@ class BreakoutDetector:
             price_confirmed = all(closes < breakout_level)
             distance = (level - closes.mean()) / level
 
+        if not price_confirmed:
+            logger.debug('Breakout rejected: price not confirmed')
+            return False, 'rejected'
+
         # Factor 2: Volume confirmation
-        vol_spike, _, _ = BreakoutDetector.calculate_volume_spike(df, timeframe)
+        vol_spike, short_ratio, medium_ratio = BreakoutDetector.calculate_volume_spike(df, timeframe)
 
         # Factor 3: Body size (strong candles vs wicks)
         recent_candles = df.iloc[-confirmation_bars:]
         body_sizes = abs(recent_candles['close'] - recent_candles['open'])
         candle_ranges = recent_candles['high'] - recent_candles['low']
         avg_body_ratio = (body_sizes / candle_ranges).mean()
-        strong_candles = avg_body_ratio > 0.6
+        strong_candles = avg_body_ratio > 0.5
 
-        # Scoring system (max 4 points)
-        score = sum([
-            price_confirmed,
-            vol_spike,
-            strong_candles,
-            distance > buffer * 2
-        ])
-
-        # Quality rating based on score
-        if score >= 4:
-            quality = 'strong'
-            is_confirmed = True
-        elif score >= 3:
-            quality = 'medium'
-            is_confirmed = True
-        elif score >= 2:
-            quality = 'weak'
-            is_confirmed = True
+        # Decision logic
+        if vol_spike:
+            if strong_candles:
+                result = (True, 'strong')
+            else:
+                result = (True, 'medium')
+        elif strong_candles:
+            result = (True, 'medium')
         else:
-            quality = 'rejected'
-            is_confirmed = False
+            result = (False, 'weak')
 
         logger.debug(
-            f'Breakout confirmation: price={price_confirmed}, vol={vol_spike}, '
-            f'candles={strong_candles}, distance={distance:.4f}, '
-            f'score={score}/4, quality={quality}'
+            f'Breakout confirmation: price={price_confirmed}, vol={vol_spike} '
+            f'({short_ratio:.1f}x/{medium_ratio:.1f}x), candles={strong_candles}, '
+            f'distance={distance:.4f}, quality={result[1]}'
         )
 
-        return is_confirmed, quality
+        return result
 
     @staticmethod
     def calculate_volume_spike(df: pd.DataFrame, timeframe: str) -> Tuple[bool, float, float]:
