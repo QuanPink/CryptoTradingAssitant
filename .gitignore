@@ -5,6 +5,7 @@ env/
 __pycache__/
 *.pyc
 *.pyo
+.DS_Store
 
 # Data
 data/logs/

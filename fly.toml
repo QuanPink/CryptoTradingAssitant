@@ -5,6 +5,7 @@ primary_region = 'sin'
 
 [env]
 LOG_LEVEL = "INFO"
+ENABLE_DATA_CACHE = "true"
 
 [deploy]
 strategy = "immediate"
