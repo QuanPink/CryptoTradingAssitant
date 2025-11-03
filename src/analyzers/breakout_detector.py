@@ -27,16 +27,12 @@ class BreakoutDetector:
 
         # Check direction
         if price > upper * (1 + buffer):
-            is_confirmed, quality = BreakoutDetector._is_confirmed_breakout(
-                df, upper, "up", timeframe
-            )
-            return ("up", quality) if is_confirmed else (None, None)
+            _, quality = BreakoutDetector._is_confirmed_breakout(df, upper, "up", timeframe)
+            return "up", quality or "strong"
 
         elif price < lower * (1 - buffer):
-            is_confirmed, quality = BreakoutDetector._is_confirmed_breakout(
-                df, lower, "down", timeframe
-            )
-            return ("down", quality) if is_confirmed else (None, None)
+            _, quality = BreakoutDetector._is_confirmed_breakout(df, lower, "down", timeframe)
+            return "down", quality or "strong"
 
         return None, None
 
@@ -85,7 +81,7 @@ class BreakoutDetector:
         elif strong_candles:
             result = (True, 'medium')
         else:
-            result = (False, 'weak')
+            result = (True, 'weak')
 
         logger.debug(
             f'Breakout confirmation: price={price_confirmed}, vol={vol_spike} '
