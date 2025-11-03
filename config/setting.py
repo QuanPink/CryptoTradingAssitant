@@ -98,8 +98,8 @@ class Settings:
     TIMEFRAME_SETTINGS = {
         '5m': {
             # Volume spike detection
-            'vol_spike_short_mult': 2.2,
-            'vol_spike_medium_mult': 1.8,
+            'vol_spike_short_mult': 1.6,
+            'vol_spike_medium_mult': 1.3,
             'vol_lookback_short': 15,
             'vol_lookback_medium': 30,
 
@@ -108,24 +108,24 @@ class Settings:
             'confirmation_bars': 1,
 
             # Accumulation detection
-            'lookback_windows': [8, 12, 16],
+            'lookback_windows': [8, 9, 10, 12, 14, 16, 18, 20],
             'max_breakout_ratio': 0.10,
             'volume_suppression_ratio': 1.2,
 
             # Other
             'proximity_threshold': 0.0015,
-            'consensus_required': 2
+            'consensus_required': 1
         },
         '15m': {
-            'vol_spike_short_mult': 2.0,
-            'vol_spike_medium_mult': 1.7,
+            'vol_spike_short_mult': 1.5,
+            'vol_spike_medium_mult': 1.2,
             'vol_lookback_short': 12,
             'vol_lookback_medium': 24,
 
             'breakout_buffer': 0.0005,
             'confirmation_bars': 1,
 
-            'lookback_windows': [10, 16, 20],
+            'lookback_windows': [10, 11, 12, 14, 16, 18, 20, 22, 24],
             'max_breakout_ratio': 0.15,
             'volume_suppression_ratio': 1.2,
 
@@ -133,15 +133,15 @@ class Settings:
             'consensus_required': 1
         },
         '30m': {
-            'vol_spike_short_mult': 1.8,
-            'vol_spike_medium_mult': 1.6,
+            'vol_spike_short_mult': 1.4,
+            'vol_spike_medium_mult': 1.1,
             'vol_lookback_short': 10,
             'vol_lookback_medium': 20,
 
             'breakout_buffer': 0.0008,
             'confirmation_bars': 2,
 
-            'lookback_windows': [12, 20, 28],
+            'lookback_windows': [12, 13, 14, 16, 18, 20, 22, 24, 26, 28],
             'max_breakout_ratio': 0.20,
             'volume_suppression_ratio': 1.3,
 
@@ -149,15 +149,15 @@ class Settings:
             'consensus_required': 1
         },
         '1h': {
-            'vol_spike_short_mult': 1.6,
-            'vol_spike_medium_mult': 1.5,
+            'vol_spike_short_mult': 1.3,
+            'vol_spike_medium_mult': 1.0,
             'vol_lookback_short': 8,
             'vol_lookback_medium': 16,
 
             'breakout_buffer': 0.0012,
             'confirmation_bars': 2,
 
-            'lookback_windows': [14, 24, 32],
+            'lookback_windows': [14, 16, 18, 20, 22, 24, 26, 28, 30, 32],
             'max_breakout_ratio': 0.25,
             'volume_suppression_ratio': 1.4,
 
