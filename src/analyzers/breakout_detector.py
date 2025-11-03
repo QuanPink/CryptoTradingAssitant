@@ -59,8 +59,8 @@ class BreakoutDetector:
             distance = (level - closes.mean()) / level
 
         if not price_confirmed:
-            logger.debug('Breakout rejected: price not confirmed')
-            return False, 'rejected'
+            logger.debug('Breakout not fully confirmed, treating as weak breakout')
+            return True, 'weak'
 
         # Factor 2: Volume confirmation
         vol_spike, short_ratio, medium_ratio = BreakoutDetector.calculate_volume_spike(df, timeframe)
