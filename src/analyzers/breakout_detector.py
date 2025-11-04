@@ -1,235 +1,243 @@
-"""Breakout detection and confirmation"""
-from typing import Tuple, Optional, Dict
+import time
+from typing import Dict, List, Optional
 
 import pandas as pd
 
-from config.setting import settings
-from src.utils.logger import setup_logger
+from src.utils.logger import get_logger
 
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 
 
 class BreakoutDetector:
-    """Multifactor breakout detection"""
+    def __init__(self, config: Dict):
+        self.config = config
+        self.accumulation_zones: Dict[str, List[Dict]] = {}
 
-    @staticmethod
-    def check_breakout(df: pd.DataFrame, price: float, upper: float, lower: float,
-                       timeframe: str) -> Tuple[Optional[str], Optional[str]]:
-        """
-        Check for breakout
+    def add_accumulation_zone(self, symbol: str, zone: Dict, timeframe: str):
+        """Add accumulation zone to breakout watchlist"""
+        if symbol not in self.accumulation_zones:
+            self.accumulation_zones[symbol] = []
 
-        Returns:
-            (direction, quality) or (None, None)
-            direction: 'up' or 'down'
-            quality: 'strong', 'medium', 'weak'
-        """
-        buffer = settings.get_tf_setting(timeframe, 'breakout_buffer')
+        zone_key = f"{symbol}_{timeframe}_{zone['support']:.6f}_{zone['resistance']:.6f}"
 
-        # Check direction
-        if price > upper * (1 + buffer):
-            _, quality = BreakoutDetector._is_confirmed_breakout(df, upper, "up", timeframe)
-            return "up", quality or "strong"
+        # KIỂM TRA VÀ IN THÔNG TIN ZONE
+        print(f"   🔍 Kiểm tra zone: {zone_key}")
+        print(f"      📍 Hỗ trợ: {zone['support']:.6f}")
+        print(f"      📍 Kháng cự: {zone['resistance']:.6f}")
 
-        elif price < lower * (1 - buffer):
-            _, quality = BreakoutDetector._is_confirmed_breakout(df, lower, "down", timeframe)
-            return "down", quality or "strong"
+        # Kiểm tra zone đã tồn tại chưa
+        existing_zone = next((z for z in self.accumulation_zones[symbol]
+                              if z.get('zone_key') == zone_key), None)
 
-        return None, None
-
-    @staticmethod
-    def _is_confirmed_breakout(df: pd.DataFrame, level: float, direction: str,
-                               timeframe: str) -> Tuple[bool, str]:
-        """
-        Multifactor breakout confirmation
-        """
-        buffer = settings.get_tf_setting(timeframe, 'breakout_buffer')
-        confirmation_bars = settings.get_tf_setting(timeframe, 'confirmation_bars')
-
-        # Factor 1: Price confirmation
-        if direction == "up":
-            breakout_level = level * (1 + buffer)
-            closes = df['close'].iloc[-confirmation_bars:]
-            price_confirmed = all(closes > breakout_level)
-            avg_close = closes.mean()
-            distance = (avg_close - level) / level
-        else:
-            breakout_level = level * (1 - buffer)
-            closes = df['close'].iloc[-confirmation_bars:]
-            price_confirmed = all(closes < breakout_level)
-            distance = (level - closes.mean()) / level
-
-        if not price_confirmed:
-            logger.debug('Breakout not fully confirmed, treating as weak breakout')
-            return True, 'weak'
-
-        # Factor 2: Volume confirmation
-        vol_spike, short_ratio, medium_ratio = BreakoutDetector.calculate_volume_spike(df, timeframe)
-
-        # Factor 3: Body size (strong candles vs wicks)
-        recent_candles = df.iloc[-confirmation_bars:]
-        body_sizes = abs(recent_candles['close'] - recent_candles['open'])
-        candle_ranges = recent_candles['high'] - recent_candles['low']
-        avg_body_ratio = (body_sizes / candle_ranges).mean()
-        strong_candles = avg_body_ratio > 0.5
-
-        # Decision logic
-        if vol_spike:
-            if strong_candles:
-                result = (True, 'strong')
-            else:
-                result = (True, 'medium')
-        elif strong_candles:
-            result = (True, 'medium')
-        else:
-            result = (True, 'weak')
-
-        logger.debug(
-            f'Breakout confirmation: price={price_confirmed}, vol={vol_spike} '
-            f'({short_ratio:.1f}x/{medium_ratio:.1f}x), candles={strong_candles}, '
-            f'distance={distance:.4f}, quality={result[1]}'
-        )
-
-        return result
-
-    @staticmethod
-    def calculate_volume_spike(df: pd.DataFrame, timeframe: str) -> Tuple[bool, float, float]:
-        """
-        Dual-window volume spike detection
-
-        Returns:
-            (is_spike, short_ratio, medium_ratio)
-        """
-        current_vol = float(df['volume'].iloc[-1])
-
-        # Get timeframe-specific settings
-        short_window = settings.get_tf_setting(timeframe, 'vol_lookback_short')
-        medium_window = settings.get_tf_setting(timeframe, 'vol_lookback_medium')
-        short_mult = settings.get_tf_setting(timeframe, 'vol_spike_short_mult')
-        medium_mult = settings.get_tf_setting(timeframe, 'vol_spike_medium_mult')
-
-        # Ensure we have enough data
-        short_window = min(short_window, len(df) - 1)
-        medium_window = min(medium_window, len(df) - 1)
-
-        # Calculate baseline volumes (exclude current candle)
-        vol_short_mean = float(df['volume'].iloc[-short_window - 1:-1].mean())
-        vol_medium_mean = float(df['volume'].iloc[-medium_window - 1:-1].mean())
-
-        # Avoid division by zero
-        if vol_short_mean == 0 or vol_medium_mean == 0:
-            return False, 0.0, 0.0
-
-        # Calculate ratios
-        short_ratio = current_vol / vol_short_mean
-        medium_ratio = current_vol / vol_medium_mean
-
-        # Dual confirmation: must exceed BOTH thresholds
-        is_spike = (short_ratio > short_mult) and (medium_ratio > medium_mult)
-
-        logger.debug(
-            f'{timeframe} Volume check: short={short_ratio:.2f}x (need >{short_mult}x), '
-            f'medium={medium_ratio:.2f}x (need >{medium_mult}x), spike={is_spike}'
-        )
-
-        return is_spike, short_ratio, medium_ratio
-
-    @staticmethod
-    def check_consensus(zones: Dict, symbol: str, direction: str, current_tf: str) -> Dict:
-        """Check multi-timeframe consensus"""
-        if symbol not in zones:
-            return {
-                'consensus': False,
-                'score': 0,
-                'total': 0,
-                'aligned_tfs': [],
-                'quality': 'weak'
+        if not existing_zone:
+            new_zone = {
+                'zone_key': zone_key,
+                'symbol': symbol,
+                'timeframe': timeframe,
+                'support': zone['support'],
+                'resistance': zone['resistance'],
+                'status': 'ACTIVE',  # ACTIVE, BREAKOUT, COMPLETED
+                'created_at': time.time(),
+                'last_breakout_time': None,
             }
-
-        tf_order = {'5m': 0, '15m': 1, '30m': 2, '1h': 3}
-        current_priority = tf_order.get(current_tf, 0)
-
-        aligned_tfs = []
-        total_higher_tfs = 0
-
-        # Check all higher timeframes
-        for tf, zone in zones[symbol].items():
-            tf_priority = tf_order.get(tf, 0)
-
-            if tf_priority > current_priority:
-                total_higher_tfs += 1
-
-                # Check if this TF is breaking in same direction
-                breakout_key = 'breakout_up' if direction == "up" else 'breakout_down'
-                if zone.get(breakout_key):
-                    aligned_tfs.append(tf)
-
-        score = len(aligned_tfs)
-
-        # Get required consensus for this timeframe
-        required = settings.get_tf_setting(current_tf, 'consensus_required')
-        consensus = score >= required
-
-        # Determine quality based on alignment
-        if score >= 3:
-            quality = 'excellent'
-        elif score >= 2:
-            quality = 'good'
-        elif score >= 1:
-            quality = 'medium'
+            self.accumulation_zones[symbol].append(new_zone)
+            logger.info(f"✅ Theo dõi breakout: {symbol} {timeframe}")
+            print(f"   ✅ Đã thêm zone mới: {symbol} {timeframe}")
         else:
-            quality = 'weak'
+            print(f"   ⚠️ Zone đã tồn tại: {symbol} {timeframe}")
 
-        logger.debug(
-            f'{symbol} {current_tf} {direction} - Consensus: {score}/{total_higher_tfs} '
-            f'(need >={required}), quality={quality}'
+    def check_breakouts(self, symbol: str, current_price: float, current_volume: float,
+                        volume_ma: float, df: pd.DataFrame, timeframe: str) -> Optional[Dict]:
+        """Check for breakouts from the accumulation zones you are watching"""
+        if symbol not in self.accumulation_zones:
+            return None
+
+        print(f"   🔍 Đang kiểm tra {len(self.accumulation_zones[symbol])} zones cho {symbol}")
+
+        for zone in self.accumulation_zones[symbol]:
+            if zone['timeframe'] != timeframe or zone['status'] == 'COMPLETED':
+                continue
+
+            print(f"      📊 Kiểm tra zone: {zone['support']:.6f} - {zone['resistance']:.6f}")
+            print(f"      💰 Giá hiện tại: {current_price:.6f}")
+
+            breakout_result = self._evaluate_breakout(zone, current_price, current_volume, volume_ma, df, timeframe)
+            if breakout_result:
+                # Cập nhật trạng thái zone
+                self._update_zone_status(zone, breakout_result)
+                return breakout_result
+
+        return None
+
+    def _evaluate_breakout(self, zone: Dict, current_price: float, current_volume: float,
+                           volume_ma: float, df: pd.DataFrame, timeframe: str) -> Optional[Dict]:
+        """Evaluate breakout for a zone"""
+        support = zone['support']
+        resistance = zone['resistance']
+
+        # Kiểm tra giá có trong vùng tích lũy không (retest)
+        if support <= current_price <= resistance:
+            if zone['status'] == 'BREAKOUT':
+                # Giá quay lại vùng tích lũy -> reset trạng thái
+                zone['status'] = 'ACTIVE'
+                zone['last_breakout_time'] = None
+                logger.info(f"🔄 Giá quay lại tích lũy: {zone['symbol']}")
+            return None
+
+        # Kiểm tra breakout lên
+        if current_price > resistance:
+            break_pct = (current_price - resistance) / resistance
+            direction = 'UP'
+            breakout_level = resistance
+
+        # Kiểm tra breakout xuống
+        elif current_price < support:
+            break_pct = (support - current_price) / support
+            direction = 'DOWN'
+            breakout_level = support
+        else:
+            return None
+
+        # Xác định loại breakout theo config của bạn
+        timeframe_config = self.config['BREAKOUT_CONFIG'][timeframe]
+        breakout_type = self._get_breakout_type(break_pct, timeframe_config)
+
+        # Tính điểm sức mạnh breakout
+        strength_score = self._calculate_breakout_strength(
+            break_pct, current_volume, volume_ma, df, direction, timeframe_config
         )
 
         return {
-            'consensus': consensus,
-            'score': score,
-            'total': total_higher_tfs,
-            'aligned_tfs': aligned_tfs,
-            'quality': quality
+            'symbol': zone['symbol'],
+            'timeframe': zone['timeframe'],
+            'direction': direction,
+            'breakout_type': breakout_type,
+            'break_pct': break_pct,
+            'current_price': current_price,
+            'breakout_level': breakout_level,
+            'support': support,
+            'resistance': resistance,
+            'strength_score': strength_score,
+            'volume_ratio': current_volume / volume_ma if volume_ma > 0 else 1,
+            'zone_key': zone['zone_key'],
+            'is_strong_breakout': breakout_type == 'STRONG_BREAK'
         }
 
     @staticmethod
-    def calculate_tp_sl(entry_price: float, direction: str, zone: Dict) -> Dict:
-        """Calculate TP/SL levels"""
-        upper = zone['upper']
-        lower = zone['lower']
-        zone_width = upper - lower
+    def _get_breakout_type(break_pct: float, timeframe_config: Dict) -> str:
+        """Xác định loại breakout theo config của bạn"""
+        if break_pct >= timeframe_config['strong_break']:
+            return 'STRONG_BREAK'
+        elif break_pct >= timeframe_config['confirmed_break']:
+            return 'CONFIRMED_BREAK'
+        elif break_pct >= timeframe_config['soft_break']:
+            return 'SOFT_BREAK'
+        return 'MINOR_BREAK'
 
-        if direction == "up":
-            # Long setup
-            sl = lower * 0.995
-            tp = entry_price + zone_width
-            risk = entry_price - sl
+    def _calculate_breakout_strength(self, break_pct: float, current_volume: float,
+                                     volume_ma: float, df: pd.DataFrame, direction: str,
+                                     timeframe_config: Dict) -> float:
+        """Tính điểm sức mạnh breakout (0-100)"""
+        score = 0
 
-            # Ensure TP follows R:R = 1:2
-            tp_rr = entry_price + (risk * 2)
-            tp = min(tp, tp_rr)
+        # 1. Điểm từ khoảng cách break (40 điểm)
+        strong_break_threshold = timeframe_config['strong_break']
+        distance_score = min(40, (break_pct / strong_break_threshold) * 40)
+        score += distance_score
 
-            return {
-                'entry': entry_price,
-                'sl': sl,
-                'tp': tp,
-                'risk_pct': ((entry_price - sl) / entry_price) * 100,
-                'reward_pct': ((tp - entry_price) / entry_price) * 100
-            }
+        # 2. Điểm từ volume (30 điểm)
+        volume_ratio = current_volume / volume_ma if volume_ma > 0 else 1
+        volume_threshold = timeframe_config['volume_spike_threshold']
+        if volume_ratio >= volume_threshold:
+            score += 30
+        elif volume_ratio >= volume_threshold * 0.8:
+            score += 20
+        elif volume_ratio >= 1.0:
+            score += 10
+
+        # 3. Điểm từ pattern nến (30 điểm)
+        candle_score = self._evaluate_candle_strength(df, direction)
+        score += candle_score
+
+        return min(100, score)
+
+    @staticmethod
+    def _evaluate_candle_strength(df: pd.DataFrame, direction: str) -> float:
+        """Đánh giá sức mạnh nến breakout"""
+        if len(df) < 2:
+            return 0
+
+        current_candle = df.iloc[-1]
+        score = 0
+
+        # Thân nến dài (15 điểm)
+        body_size = abs(current_candle['close'] - current_candle['open'])
+        total_range = current_candle['high'] - current_candle['low']
+
+        if total_range > 0:
+            body_ratio = body_size / total_range
+            if body_ratio >= 0.7:
+                score += 15
+            elif body_ratio >= 0.5:
+                score += 10
+            elif body_ratio >= 0.3:
+                score += 5
+
+        # Đóng cửa ở extreme (15 điểm)
+        if direction == 'UP':
+            close_position = (current_candle['close'] - current_candle['low']) / total_range
+            if close_position >= 0.7:
+                score += 15
+        else:  # DOWN
+            close_position = (current_candle['high'] - current_candle['close']) / total_range
+            if close_position >= 0.7:
+                score += 15
+
+        return score
+
+    def get_monitoring_status(self) -> Dict:
+        """Get the current status of monitoring"""
+        active_zones = 0
+        breakout_zones = 0
+        completed_zones = 0
+
+        for symbol, zones in self.accumulation_zones.items():
+            for zone in zones:
+                if zone['status'] == 'ACTIVE':
+                    active_zones += 1
+                elif zone['status'] == 'BREAKOUT':
+                    breakout_zones += 1
+                elif zone['status'] == 'COMPLETED':
+                    completed_zones += 1
+
+        return {
+            'active_zones': active_zones,
+            'breakout_zones': breakout_zones,
+            'completed_zones': completed_zones,
+            'total_symbols': len(self.accumulation_zones)
+        }
+
+    @staticmethod
+    def _update_zone_status(zone: Dict, breakout_result: Dict):
+        """Cập nhật trạng thái zone sau breakout"""
+        zone['last_breakout_time'] = time.time()
+
+        if breakout_result['is_strong_breakout']:
+            # Breakout mạnh -> hoàn thành, không theo dõi nữa
+            zone['status'] = 'COMPLETED'
+            logger.info(f"🎯 Breakout mạnh - Kết thúc: {zone['symbol']}")
         else:
-            # Short setup
-            sl = upper * 1.005
-            tp = entry_price - zone_width
-            risk = sl - entry_price
+            # Breakout yếu/trung bình -> tiếp tục theo dõi
+            zone['status'] = 'BREAKOUT'
+            logger.info(f"⚡ Breakout - Theo dõi tiếp: {zone['symbol']}")
 
-            # Ensure TP follows R:R = 1:2
-            tp_rr = entry_price - (risk * 2)
-            tp = max(tp, tp_rr)
+    def cleanup_old_zones(self):
+        """Dọn dẹp zones cũ"""
+        current_time = time.time()
+        max_age = 24 * 3600  # 24 giờ
 
-            return {
-                'entry': entry_price,
-                'sl': sl,
-                'tp': tp,
-                'risk_pct': ((sl - entry_price) / entry_price) * 100,
-                'reward_pct': ((entry_price - tp) / entry_price) * 100
-            }
+        for symbol, zones in self.accumulation_zones.items():
+            self.accumulation_zones[symbol] = [
+                zone for zone in zones
+                if current_time - zone['created_at'] <= max_age
+            ]

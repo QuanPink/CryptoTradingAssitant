@@ -1,220 +1,137 @@
-"""Accumulation detection using classic price action"""
-from typing import Dict, Optional
+from typing import Dict
 
-import numpy as np
 import pandas as pd
 
-from config.setting import settings
-from src.utils.logger import setup_logger
+from src.indicators.technical import TechnicalIndicator
+from src.utils.logger import get_logger
 
-logger = setup_logger(__name__)
+logger = get_logger(__name__)
 
 
 class AccumulationDetector:
-    """Classic price action accumulation detection"""
+    def __init__(self, config: Dict):
+        self.config = config
+        self.technical = TechnicalIndicator()
 
     @staticmethod
-    def detect(df: pd.DataFrame, timeframe: str, symbol: str) -> Optional[Dict]:
-        """
-        Detect accumulation zone
+    def is_bar_in_range(bar: pd.Series, range_high: float, range_low: float) -> bool:
+        """Check if candle is mostly within accumulation range"""
+        open_price, _, _, close = bar['open'], bar['high'], bar['low'], bar['close']
 
-        Returns:
-            Zone info dict if detected, None otherwise
-        """
-        lookback_windows = settings.get_tf_setting(timeframe, 'lookback_windows')
+        body_high = max(open_price, close)
+        body_low = min(open_price, close)
+        body_height = body_high - body_low
 
-        for lookback in lookback_windows:
-            if len(df) < lookback + 1:
-                continue
+        if body_height == 0:
+            return range_low <= open_price <= range_high
 
-            zone = AccumulationDetector._check_window(df, lookback, symbol, timeframe)
-            if zone:
-                return zone
+        body_in_range_high = min(body_high, range_high)
+        body_in_range_low = max(body_low, range_low)
+        body_in_range_height = max(0, body_in_range_high - body_in_range_low)
+        body_in_range_ratio = body_in_range_height / body_height
 
-        return None
+        return body_in_range_ratio >= 0.6
 
-    @staticmethod
-    def _check_window(df, lookback, symbol, timeframe):
-        """Check single lookback window"""
-        high = df['high'].values[-lookback:]
-        low = df['low'].values[-lookback:]
-        close = df['close'].values[-lookback:]
+    def check_accumulation_range(self, df: pd.DataFrame, timeframe: str) -> Dict:
+        """Check if price is in accumulation range based on ATR volatility"""
+        config = self.config[timeframe]
 
-        upper = np.max(high)
-        lower = np.min(low)
+        if len(df) < max(config['N_range'], 14):
+            logger.warning(f"Not enough data for {timeframe}")
+            return self._create_range_check_result(False)
 
-        # Core checks
-        range_ok, range_pct, range_quality = AccumulationDetector._check_price_range(
-            df, lookback, symbol, timeframe
-        )
+        recent_data = df.tail(config['N_range']).copy()
+        atr = self.technical.calculate_atr(df, 14)
+        current_atr = atr.iloc[-1] if not atr.empty and not pd.isna(atr.iloc[-1]) else 0
 
-        breakout_ok, breakout_ratio = AccumulationDetector._check_breakout_ratio(
-            close, upper, lower, timeframe
-        )
+        if current_atr == 0:
+            logger.warning(f"ATR is zero for {timeframe}")
+            return self._create_range_check_result(False)
 
-        volume_ok, vol_ratio = AccumulationDetector._check_volume_suppression(
-            df, lookback, timeframe
-        )
+        current_price = recent_data['close'].iloc[-1]
+        range_size = current_atr * config['K_volatility']
+        range_high = current_price + range_size
+        range_low = current_price - range_size
 
-        # Decision
-        if not (range_ok and breakout_ok):
-            logger.debug(
-                f'{symbol} {timeframe} - Core conditions failed: '
-                f'range={range_ok}, breakout={breakout_ok}'
-            )
-            return None
+        bars_in_range = 0
+        bars_with_wick_outside = 0
 
-        # Build zone info
-        quality = AccumulationDetector._determine_quality(volume_ok, range_quality)
+        for _, bar in recent_data.iterrows():
+            if self.is_bar_in_range(bar, range_high, range_low):
+                bars_in_range += 1
+            if bar['high'] > range_high * 1.01 or bar['low'] < range_low * 0.99:
+                bars_with_wick_outside += 1
 
-        return AccumulationDetector._build_zone_info(
-            upper, lower, range_pct, lookback, timeframe,
-            quality, range_quality, breakout_ratio, vol_ratio, symbol
-        )
+        bars_in_range_ratio = bars_in_range / len(recent_data)
+        wick_outside_ratio = bars_with_wick_outside / len(recent_data)
 
-    @staticmethod
-    def _check_price_range(df: pd.DataFrame, lookback: int,
-                           symbol: str, timeframe: str) -> tuple[bool, float, str]:
-        """
-        Core check: Price stays within tight range
-
-        Returns:
-            (is_valid, range_pct, quality)
-        """
-        window = df.iloc[-lookback:]
-
-        high = window['high'].max()
-        low = window['low'].min()
-        range_pct = (high - low) / low if low > 0 else np.inf
-
-        # Get symbol-specific thresholds
-        thresholds = settings.get_accumulation_range(symbol, timeframe)
-        min_range = thresholds['min']
-        max_range = thresholds['max']
-
-        # Quality assessment
-        if range_pct < min_range:
-            quality = "too_tight"
-            is_valid = False
-        elif range_pct <= max_range * 0.5:
-            quality = "excellent"
-            is_valid = True
-        elif range_pct <= max_range * 0.75:
-            quality = "good"
-            is_valid = True
-        elif range_pct <= max_range:
-            quality = "fair"
-            is_valid = True
-        else:
-            quality = "too_wide"
-            is_valid = False
-
-        logger.debug(
-            f'{symbol} {timeframe} Range: {range_pct:.4f} '
-            f'({min_range:.4f}-{max_range:.4f}) → {quality.upper()}'
-        )
-
-        return is_valid, range_pct, quality
-
-    @staticmethod
-    def _check_breakout_ratio(close: np.ndarray, upper: float, lower: float, timeframe: str) -> tuple[bool, float]:
-        """
-        Check that most candles stay within range
-
-        Returns:
-            (is_valid, breakout_ratio)
-        """
-
-        # Vectorized operation (much faster than loop)
-        breakout_count = np.sum((close > upper * 1.001) | (close < lower * 0.999))
-
-        breakout_ratio = breakout_count / len(close)
-        max_breakout = settings.get_tf_setting(timeframe, 'max_breakout_ratio')
-
-        is_valid = breakout_ratio <= max_breakout
-
-        logger.debug(
-            f'Breakout: {breakout_count}/{len(close)} '
-            f'({breakout_ratio:.1%}) vs max {max_breakout:.1%} '
-            f'→ {"PASS" if is_valid else "FAIL"}'
-        )
-
-        return is_valid, breakout_ratio
-
-    @staticmethod
-    def _check_volume_suppression(df: pd.DataFrame, lookback: int,
-                                  timeframe: str) -> tuple[bool, float]:
-        """
-        Simple filter: Volume should be declining or low
-
-        Returns:
-            (is_valid, volume_ratio)
-        """
-        window = df.iloc[-lookback:]
-
-        # Current period average
-        current_vol = window['volume'].mean()
-
-        # Historical average (2x lookback)
-        if len(df) >= lookback * 2:
-            hist_vol = df['volume'].iloc[-(lookback * 2):-lookback].mean()
-        else:
-            hist_vol = df['volume'].mean()
-
-        vol_ratio = current_vol / hist_vol if hist_vol > 0 else 1.0
-
-        # Get threshold
-        max_vol_ratio = settings.get_tf_setting(timeframe, 'volume_suppression_ratio')
-        is_valid = vol_ratio < max_vol_ratio
-
-        logger.debug(
-            f'Volume: {vol_ratio:.2f}x historical (max {max_vol_ratio:.2f}x) '
-            f'→ {"PASS" if is_valid else "FAIL"}'
-        )
-
-        return is_valid, vol_ratio
-
-    @staticmethod
-    def _determine_quality(volume_ok: bool, range_quality: str) -> str:
-        """Determine overall quality"""
-        if volume_ok and range_quality == "excellent":
-            return "excellent"
-        elif volume_ok:
-            return "good"
-        else:
-            return "fair"
-
-    @staticmethod
-    def _build_zone_info(upper, lower, range_pct, lookback, timeframe,
-                         quality, range_quality, breakout_ratio, vol_ratio, symbol):
-        """Build zone info dict"""
-        tf_meta = settings.TIMEFRAME_METADATA[timeframe]
-        duration_hours = lookback * tf_meta['duration_factor']
-
-        thresholds = settings.get_accumulation_range(symbol, timeframe)
-
-        logger.info(
-            f'[ACCUMULATION DETECTED] {symbol} {timeframe}\n'
-            f'  Lookback: {lookback} bars ({duration_hours:.1f}h)\n'
-            f'  Range: {range_pct:.4f} ({thresholds["min"]:.4f}-{thresholds["max"]:.4f}) '
-            f'✅ [{range_quality}]\n'
-            f'  Breakouts: {breakout_ratio:.1%} ✅\n'
-            f'  Volume: {vol_ratio:.2f}x {"✅" if vol_ratio < settings.get_tf_setting(timeframe, "volume_suppression_ratio") else "⚠️"}\n'
-            f'  Quality: {quality.upper()}'
-        )
+        is_in_range = bars_in_range_ratio >= 0.8 and wick_outside_ratio <= config['max_wick_bars_ratio']
 
         return {
-            'upper': float(upper),
-            'lower': float(lower),
-            'width': float(range_pct),
-            'mid': float((upper + lower) / 2),
-            'lookback': lookback,
-            'duration_hours': duration_hours,
-            'timeframe': timeframe,
-            'quality': quality,
-            'range_pct': float(range_pct),
-            'range_quality': range_quality,
-            'breakout_ratio': float(breakout_ratio),
-            'vol_ratio': float(vol_ratio),
-            'thresholds': thresholds
+            'is_in_range': is_in_range,
+            'range_high': range_high,
+            'range_low': range_low,
+            'bars_in_range_ratio': bars_in_range_ratio,
+            'wick_outside_ratio': wick_outside_ratio,
+            'range_size_pct': (range_size / current_price) * 100
+        }
+
+    def check_volume_contraction(self, df: pd.DataFrame, timeframe: str) -> Dict:
+        """Check if volume is contracting during accumulation period"""
+        config = self.config[timeframe]
+
+        if len(df) < config['N_volume_lookback'] + config['N_range']:
+            return {'is_volume_contracted': False, 'volume_ratio': None}
+
+        current_volume = df['volume'].tail(config['N_range']).mean()
+        previous_volume = df['volume'].tail(config['N_volume_lookback'] + config['N_range']).head(
+            config['N_volume_lookback']).mean()
+
+        if previous_volume == 0:
+            return {'is_volume_contracted': False, 'volume_ratio': None}
+
+        volume_ratio = current_volume / previous_volume
+        is_volume_contracted = volume_ratio < config['volume_ratio_threshold']
+
+        return {
+            'is_volume_contracted': is_volume_contracted,
+            'volume_ratio': volume_ratio,
+            'current_volume': current_volume,
+            'previous_volume': previous_volume
+        }
+
+    def check_accumulation(self, df: pd.DataFrame, timeframe: str) -> Dict:
+        """Main function to check accumulation conditions"""
+        range_check = self.check_accumulation_range(df, timeframe)
+        volume_check = self.check_volume_contraction(df, timeframe)
+
+        # Log detailed reasons
+        if not range_check['is_in_range']:
+            logger.info(f"❌ Range check failed: bars_in_range={range_check.get('bars_in_range_ratio', 0):.1%}")
+
+        if not volume_check['is_volume_contracted']:
+            logger.info(f"❌ Volume check failed: volume_ratio={volume_check.get('volume_ratio', 0):.2f}")
+
+        is_accumulation = range_check['is_in_range'] and volume_check['is_volume_contracted']
+
+        if is_accumulation:
+            logger.info(f"✅ Accumulation detected on {timeframe}")
+
+        return {
+            'is_accumulation': is_accumulation,
+            'range_check': range_check,
+            'volume_check': volume_check,
+            'timeframe': timeframe
+        }
+
+    @staticmethod
+    def _create_range_check_result(is_in_range: bool) -> Dict:
+        """Helper to create range check result"""
+        return {
+            'is_in_range': is_in_range,
+            'range_high': None,
+            'range_low': None,
+            'bars_in_range_ratio': 0,
+            'wick_outside_ratio': 0,
+            'range_size_pct': 0
         }
