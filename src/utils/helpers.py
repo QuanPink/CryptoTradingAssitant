@@ -1,29 +1,21 @@
-"""Helper utilities"""
-import math
-from typing import List
-
 import pandas as pd
 
+from src.utils.logger import get_logger
 
-def ohlcv_to_df(ohlcv: List[List[float]]) -> pd.DataFrame:
-    """Convert OHLCV list to DataFrame"""
-    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df.set_index('timestamp', inplace=True)
-    return df
+logger = get_logger(__name__)
 
 
-def align_to_next_5min() -> float:
-    """Calculate seconds until next 5-minute mark"""
-    now = pd.Timestamp.utcnow()
-    minute = now.minute
-    next_min = (math.floor(minute / 5) + 1) * 5
+class DataQualityChecker:
+    @staticmethod
+    def check_data_quality(df: pd.DataFrame, symbol: str, timeframe: str):
+        """Check data quality"""
+        if df is None or df.empty:
+            logger.error(f"No data to check for {symbol} on {timeframe}")
+            return
 
-    if next_min >= 60:
-        next_min = 0
-        target = now.replace(minute=0, second=0, microsecond=0) + pd.Timedelta(hours=1)
-    else:
-        target = now.replace(minute=next_min, second=0, microsecond=0)
-
-    delta = (target - now).total_seconds()
-    return max(delta, 0)
+        logger.info(f"Data quality check for {symbol} on {timeframe}:")
+        logger.info(f" - Total bars: {len(df)}")
+        logger.info(f" - Date range: {df.index[0]} to {df.index[-1]}")
+        logger.info(f" - Close price range: {df['close'].min():.2f} - {df['close'].max():.2f}")
+        logger.info(f" - Volume range: {df['volume'].min():.2f} - {df['volume'].max():.2f}")
+        logger.info(f" - Null values: {df.isnull().sum().sum()}")
