@@ -3,7 +3,7 @@ from typing import Optional, Dict
 import ccxt
 import pandas as pd
 
-from config.setting import Settings
+from config.settings import Settings
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -21,9 +21,13 @@ class ExchangeManager:
         for exchange_name in self.settings.EXCHANGE_PRIORITY:
             try:
                 if exchange_name == 'binance':
-                    self.exchanges[exchange_name] = ccxt.binance()
+                    exchange = ccxt.binance()
+                    exchange.options['defaultType'] = 'future'
+                    self.exchanges[exchange_name] = exchange
                 elif exchange_name == 'bybit':
-                    self.exchanges[exchange_name] = ccxt.bybit()
+                    exchange = ccxt.bybit()
+                    exchange.options['defaultType'] = 'future'
+                    self.exchanges[exchange_name] = exchange
                 logger.info(f"Initialized {exchange_name} exchange")
             except Exception as e:
                 logger.error(f"Failed to initialize {exchange_name}: {str(e)}")
@@ -99,7 +103,7 @@ class ExchangeManager:
         if exchange_name == 'binance':
             return symbol.replace('/', '')
         elif exchange_name == 'bybit':
-            return symbol
+            return symbol + ':USDT'
         return symbol
 
     def get_exchange_for_symbol(self, symbol: str) -> Optional[str]:

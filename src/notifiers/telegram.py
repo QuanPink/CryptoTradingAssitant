@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import time
+from typing import List
 
 import requests
 
@@ -17,7 +20,6 @@ class TelegramNotifier:
 
         self.last_send = 0
         self.min_interval = 0.5  # 500ms between messages
-        self.message_queue = []
 
     def send_message(self, text: str, parse_mode: str = 'Markdown') -> bool:
         """Send message to Telegram"""
@@ -48,11 +50,9 @@ class TelegramNotifier:
                 logger.info('✅ Telegram message sent successfully')
                 return True
             elif response.status_code == 429:
-                # Rate limit hit
+                # Rate limit hit - retry once
                 retry_after = response.json().get('parameters', {}).get('retry_after', 60)
-                logger.warning(
-                    f'⚠️ Telegram rate limit hit! Retry after {retry_after}s'
-                )
+                logger.warning(f'⚠️ Telegram rate limit hit! Retry after {retry_after}s')
                 time.sleep(retry_after)
                 return self.send_message(text, parse_mode)  # Retry once
             else:
@@ -66,30 +66,8 @@ class TelegramNotifier:
             logger.error(f'💥 Error sending Telegram message: {e}')
             return False
 
-    def send_start_notification(self, symbols: list, timeframes: list):
+    def send_start_notification(self, symbols: List[str], timeframes: List[str]) -> bool:
         """Send bot start notification"""
-        message = self._format_start_message(symbols, timeframes)
-        return self.send_message(message, 'Markdown')
-
-    def send_stop_notification(self, total_accumulations: int = 0):
-        """Send bot stop notification"""
-        message = self._format_stop_message(total_accumulations)
-        return self.send_message(message, 'Markdown')
-
-    def send_accumulation_alert(self, symbol: str, timeframe: str, strength_result: dict, exchange: str,
-                                current_price: float):
-        """Send formatted accumulation alert"""
-        message = self._format_accumulation_message(symbol, timeframe, strength_result, exchange, current_price)
-        return self.send_message(message, 'Markdown')
-
-    def send_breakout_alert(self, breakout_result: dict, exchange: str):
-        """Send breakout alert"""
-        message = self._format_breakout_message(breakout_result, exchange)
-        return self.send_message(message, 'Markdown')
-
-    @staticmethod
-    def _format_start_message(symbols: list, timeframes: list) -> str:
-        """Format bot start message"""
         symbols_str = ", ".join([s.replace('/USDT', '') for s in symbols])
 
         message = f"""
@@ -103,11 +81,10 @@ class TelegramNotifier:
     ⏰ *Started at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`
     """.strip()
 
-        return message
+        return self.send_message(message)
 
-    @staticmethod
-    def _format_stop_message(total_accumulations: int = 0) -> str:
-        """Format bot stop message"""
+    def send_stop_notification(self, total_accumulations: int = 0) -> bool:
+        """Send bot stop notification"""
         message = f"""
     🛑 *BOT STOPPED*
     ━━━━━━━━━━━━━━━
@@ -118,11 +95,11 @@ class TelegramNotifier:
     ⏰ *Stopped at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`
     """.strip()
 
-        return message
+        return self.send_message(message)
 
-    def _format_accumulation_message(self, symbol: str, timeframe: str, strength_result: dict, exchange: str,
-                                     current_price: float) -> str:
-        """Format accumulation message according to your template"""
+    def send_accumulation_alert(self, symbol: str, timeframe: str, strength_result: dict, exchange: str,
+                                current_price: float) -> bool:
+        """Send formatted accumulation alert"""
         strength_score = strength_result['strength_score']
         strength_level = strength_result['strength_level']
         breakout_probability = strength_result['breakout_probability']
@@ -135,26 +112,25 @@ class TelegramNotifier:
         message = f"""
     🚀 *ACCUMULATION DETECTED*
     ━━━━━━━━━━━━━━━━━
-    
+
     🪙 *{symbol}* | ⏱️ *{timeframe}*
-    
+
     💰 *Price:* `{current_price:,.2f}`
     📈 *Resistance:* `{zone['resistance']:,.2f}`
     📉 *Support:* `{zone['support']:,.2f}`
-    
+
     📊 *Range:* `{range_size_pct:.2f}%`
     ⏳ *Accumulation Duration:* `{duration_hours:.1f}h`
     💪 *Strength:* `{strength_score:.1f}/100` ({strength_level})
     🎯 *Breakout:* {breakout_probability}
-    
+
     *Exchange:* {exchange}
     """.strip()
 
-        return message
+        return self.send_message(message)
 
-    @staticmethod
-    def _format_breakout_message(breakout_result: dict, exchange: str) -> str:
-        """Format breakout message"""
+    def send_breakout_alert(self, breakout_result: dict, exchange: str) -> bool:
+        """Send breakout alert"""
         symbol = breakout_result['symbol']
         timeframe = breakout_result['timeframe']
         direction = breakout_result['direction']
@@ -180,7 +156,7 @@ class TelegramNotifier:
     💰 *Price:* `{breakout_result['current_price']:.6f}`
     🎯 *Direction:* {direction}
     📏 *Breakout:* `{break_pct:.2f}%` ({breakout_type})
-
+        
     💪 *Strength Score:* `{strength_score:.1f}/100`
     📊 *Volume Ratio:* `{volume_ratio:.2f}x`
 
@@ -190,7 +166,7 @@ class TelegramNotifier:
     🏢 *Exchange:* {exchange}
     """.strip()
 
-        return message
+        return self.send_message(message)
 
     @staticmethod
     def _calculate_duration_hours(timeframe: str, duration_bars: int) -> float:

@@ -9,6 +9,13 @@ logger = get_logger(__name__)
 
 
 class TechnicalIndicator:
+    """
+        Technical analysis indicators
+        - ATR (Average True Range) for volatility
+        - EMA (Exponential Moving Average) for trends
+        - Trend detection algorithm
+        """
+
     @staticmethod
     def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
         """Calculate Average True Range (ATR) for volatility measurement"""
@@ -22,7 +29,9 @@ class TechnicalIndicator:
 
             true_range = np.maximum(np.maximum(high_low, high_close), low_close)
             atr = true_range.rolling(window=period).mean()
+
             return atr
+
         except Exception as e:
             logger.error(f"Error calculating ATR: {str(e)}")
             return pd.Series(dtype=float)
@@ -44,21 +53,31 @@ class TechnicalIndicator:
         """
         Identify previous trend direction and strength using EMA
         """
-        # Kiểm tra dữ liệu đầu vào
+        # Validate inputs
         if (df is None or df.empty or len(df) < max(lookback, ma_period) or
                 'close' not in df.columns):
-            return {'trend': 'SIDEWAYS', 'strength': 0, 'trend_score': 0, 'ema_slope': 0}
+            return {
+                'trend': 'SIDEWAYS',
+                'strength': 0,
+                'trend_score': 0,
+                'ema_slope': 0
+            }
 
         try:
             # Calculate EMA
-            ema_series: pd.Series = TechnicalIndicator.calculate_ema(df, ma_period)
+            ema_series = TechnicalIndicator.calculate_ema(df, ma_period)
 
             if ema_series.empty:
-                return {'trend': 'SIDEWAYS', 'strength': 0, 'trend_score': 0, 'ema_slope': 0}
+                return {
+                    'trend': 'SIDEWAYS',
+                    'strength': 0,
+                    'trend_score': 0,
+                    'ema_slope': 0
+                }
 
-            # Get recent data for trend analysis - thêm type hint
-            recent_data: pd.DataFrame = df.tail(lookback).copy()
-            recent_ema: pd.Series = ema_series.tail(lookback)
+            # Get recent data for trend analysis
+            recent_data = df.tail(lookback).copy()
+            recent_ema = ema_series.tail(lookback)
 
             # Calculate trend strength based on EMA slope
             if len(recent_ema) >= 2:
@@ -66,10 +85,11 @@ class TechnicalIndicator:
             else:
                 ema_slope = 0
 
-            # Calculate how many bars are above/below EMA - ép kiểu về int
-            bars_above_ema: int = int((recent_data['close'] > recent_ema).sum())
-            bars_below_ema: int = int((recent_data['close'] < recent_ema).sum())
+            # Calculate how many bars are above/below EMA
+            bars_above_ema = int((recent_data['close'] > recent_ema).sum())
+            bars_below_ema = int((recent_data['close'] < recent_ema).sum())
 
+            # Determine trend
             if ema_slope > 0.5 and bars_above_ema > bars_below_ema:
                 trend = 'UPTREND'
                 trend_score = min(25, abs(ema_slope) * 2)
@@ -89,4 +109,9 @@ class TechnicalIndicator:
 
         except Exception as e:
             logger.error(f"Error identifying trend: {str(e)}")
-            return {'trend': 'SIDEWAYS', 'strength': 0, 'trend_score': 0, 'ema_slope': 0}
+            return {
+                'trend': 'SIDEWAYS',
+                'strength': 0,
+                'trend_score': 0,
+                'ema_slope': 0
+            }
