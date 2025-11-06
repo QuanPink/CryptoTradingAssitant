@@ -108,11 +108,11 @@ class TradingBot:
         self.notified_accumulations.cleanup()
 
         # Print summary
-        print("\n📊 CYCLE SUMMARY:")
-        print(f"   ✅ Accumulations: {total_accumulations}")
-        print(f"   🚀 Breakouts: {total_breakouts}")
-        print(f"   📍 Active zones: {len(self.accumulation_zones)}")
-        print(f"   📋 Notified accumulations: {len(self.notified_accumulations)}")
+        logger.info("\n📊 CYCLE SUMMARY:")
+        logger.info(f"   ✅ Accumulations: {total_accumulations}")
+        logger.info(f"   🚀 Breakouts: {total_breakouts}")
+        logger.info(f"   📍 Active zones: {len(self.accumulation_zones)}")
+        logger.info(f"   📋 Notified accumulations: {len(self.notified_accumulations)}")
 
         print("\n🔍 DEBUG - Active zones breakdown:")
         for key, zone in self.accumulation_zones.items():
