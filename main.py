@@ -145,6 +145,16 @@ class TradingBot:
                                                    old_zone.resistance)
 
             if overlap >= 0.9:
+                refreshed_zone = old_zone.__class__(
+                    symbol=old_zone.symbol,
+                    timeframe=old_zone.timeframe,
+                    support=old_zone.support,
+                    resistance=old_zone.resistance,
+                    created_at=old_zone.created_at,
+                    strength_score=new_zone.strength_score,
+                    strength_details=new_zone.strength_details
+                )
+                self.accumulation_zones[key] = refreshed_zone
                 logger.debug(f"Keeping existing zone {key}: overlap {overlap:.0%}")
                 return
 

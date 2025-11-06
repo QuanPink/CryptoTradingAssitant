@@ -100,7 +100,7 @@ SYMBOL_RANGE_SETTINGS: Dict[str, Dict[str, float]] = {
         '1h': 2.3,
     },
     'SOL/USDT': {
-        '5m': 0.50,
+        '5m': 0.40,
         '15m': 0.65,
         '30m': 1,
         '1h': 1.30,
@@ -116,14 +116,14 @@ SYMBOL_RANGE_SETTINGS: Dict[str, Dict[str, float]] = {
 # Breakout detection thresholds
 BREAKOUT_THRESHOLDS: Dict[str, Dict] = {
     '5m': {
-        'soft_break': 0.0015,  # 0.15%
+        'soft_break': 0.0008,  # 0.15%
         'confirmed_break': 0.003,  # 0.3%
         'strong_break': 0.005,  # 0.5%
         'volume_spike_threshold': 1.5,
         'cooldown_period': 30,  # candles
     },
     '15m': {
-        'soft_break': 0.0012,
+        'soft_break': 0.0008,
         'confirmed_break': 0.0025,
         'strong_break': 0.004,
         'volume_spike_threshold': 1.8,
@@ -137,7 +137,7 @@ BREAKOUT_THRESHOLDS: Dict[str, Dict] = {
         'cooldown_period': 15,
     },
     '1h': {
-        'soft_break': 0.0008,
+        'soft_break': 0.001,
         'confirmed_break': 0.0015,
         'strong_break': 0.0025,
         'volume_spike_threshold': 2.2,
