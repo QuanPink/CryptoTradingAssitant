@@ -62,7 +62,7 @@ class AccumulationService:
         if len(df) < n_range:
             return False
 
-        recent_data = df.tail(config['N_range']).copy()
+        recent_data = df.iloc[-(config['N_range'] + 1):-1].copy()
         current_price = recent_data['close'].iloc[-1]
 
         body_highs = recent_data[['open', 'close']].max(axis=1)
@@ -184,7 +184,7 @@ class AccumulationService:
         Calculate support/resistance levels
         """
         config = self.thresholds[timeframe]
-        recent_data: pd.DataFrame = df.tail(config['N_range'])
+        recent_data = df.iloc[-(config['N_range'] + 1):-1]
 
         actual_high = recent_data['high'].max()
         actual_low = recent_data['low'].min()

@@ -1,6 +1,6 @@
 import time
-from typing import Dict, Optional
 from datetime import datetime
+from typing import Dict, Optional
 
 from config import (
     TELEGRAM_BOT_TOKEN,
@@ -39,18 +39,23 @@ class TradingBot:
         self.is_running = False
 
     @staticmethod
-    def _wait_for_next_minute():
-        """Wait until next minute starts (xx:xx:00)"""
+    def _wait_until_next_bar(interval_seconds: int):
+        """
+        Wait until next bar (aligned with timeframe interval).
+        Avoids skipping when processing took longer than expected.
+        """
         now = datetime.now()
+        seconds = now.second + now.microsecond / 1_000_000
+        remainder = seconds % interval_seconds
+        wait_time = interval_seconds - remainder
 
-        seconds_in_current_minute = now.second + now.microsecond / 1_000_000
-        seconds_to_next_minute = 60 - seconds_in_current_minute
+        # Nếu xử lý đã trễ hơn interval (ví dụ >60s) => không chờ
+        if wait_time < 1 or wait_time > interval_seconds:
+            logger.warning("Cycle overran interval, starting next immediately.")
+            return
 
-        if seconds_to_next_minute < 1:
-            seconds_to_next_minute += 60
-
-        logger.info(f"⏳ Waiting {seconds_to_next_minute:.1f}s until next minute...")
-        time.sleep(seconds_to_next_minute)
+        logger.info(f"⏳ Waiting {wait_time:.1f}s until next bar...")
+        time.sleep(wait_time)
 
     def start_monitoring(self):
         """Start continuous monitoring loop"""
@@ -62,14 +67,15 @@ class TradingBot:
 
         # Send start notification
         self.telegram.send_start_notification(SYMBOLS, TIMEFRAMES)
-        self._wait_for_next_minute()
+        self._wait_until_next_bar(MONITORING_INTERVAL)
+
 
         cycle_count = 0
         try:
             while self.is_running:
                 cycle_count += 1
                 self._run_cycle(cycle_count)
-                self._wait_for_next_minute()
+                self._wait_until_next_bar(MONITORING_INTERVAL)
 
         except KeyboardInterrupt:
             logger.info("🛑 Stopping bot (KeyboardInterrupt)")
@@ -80,8 +86,6 @@ class TradingBot:
 
     def _run_cycle(self, cycle_count: int):
         """Run one monitoring cycle"""
-        cycle_start = time.time()
-
         # Print header
         print(f"\n{'=' * 60}")
         print(f"🔄 CYCLE #{cycle_count}: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -114,9 +118,6 @@ class TradingBot:
         for key, zone in self.accumulation_zones.items():
             print(f"   - {key}: support={zone.support:.2f}, resistance={zone.resistance:.2f}")
 
-        # Wait for next cycle
-        self._wait_next_cycle(cycle_start)
-
     @staticmethod
     def _calculate_zone_overlap(support1: float, resistance1: float, support2: float, resistance2: float) -> float:
         """Calculate overlap percentage between two zones"""
@@ -140,19 +141,15 @@ class TradingBot:
         """
         if key in self.accumulation_zones:
             old_zone = self.accumulation_zones[key]
-            overlap = self._calculate_zone_overlap(
-                new_zone.support, new_zone.resistance,
-                old_zone.support, old_zone.resistance
-            )
+            overlap = self._calculate_zone_overlap(new_zone.support, new_zone.resistance, old_zone.support,
+                                                   old_zone.resistance)
 
             if overlap >= 0.9:
-                # Update
-                logger.debug(f"Updating zone {key}: overlap {overlap:.0%}")
-                self.accumulation_zones[key] = new_zone
-            else:
-                # Replace
-                logger.info(f"Replacing zone {key}: overlap {overlap:.0%}")
-                self.accumulation_zones[key] = new_zone
+                logger.debug(f"Keeping existing zone {key}: overlap {overlap:.0%}")
+                return
+
+            logger.info(f"Replacing zone {key}: overlap={overlap:.0%}")
+            self.accumulation_zones[key] = new_zone
         else:
             # New
             logger.info(f"Adding new zone {key}")
@@ -185,7 +182,7 @@ class TradingBot:
             key = f"{symbol}_{timeframe}"
 
             # Check for accumulation
-            zone = self.accumulation_service.detect(df, timeframe,symbol)
+            zone = self.accumulation_service.detect(df, timeframe, symbol)
 
             if zone:
                 # Set symbol in zone
