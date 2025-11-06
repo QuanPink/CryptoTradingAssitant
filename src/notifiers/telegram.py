@@ -5,6 +5,7 @@ from typing import List
 
 import requests
 
+from src.models import AccumulationZone, BreakoutSignal
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -97,71 +98,71 @@ class TelegramNotifier:
 
         return self.send_message(message)
 
-    def send_accumulation_alert(self, symbol: str, timeframe: str, strength_result: dict, exchange: str,
-                                current_price: float) -> bool:
+    def send_accumulation_alert(self, zone: AccumulationZone, exchange: str, current_price: float) -> bool:
         """Send formatted accumulation alert"""
-        strength_score = strength_result['strength_score']
-        strength_level = strength_result['strength_level']
-        breakout_probability = strength_result['breakout_probability']
-        zone = strength_result['accumulation_zone']
-        range_size_pct = strength_result['score_details'].get('range_size_pct', 0)
+        duration_hours = self._calculate_duration_hours(
+            zone.timeframe,
+            zone.strength_details.get('duration_score', 0)
+        )
+        range_pct = zone.strength_details.get('range_size_pct', 0)
 
-        # Calculate accumulation duration in hours
-        duration_hours = self._calculate_duration_hours(timeframe, zone['duration_bars'])
+        if zone.strength_score >= 80:
+            breakout_prob = 'VERY HIGH ⭐⭐⭐'
+        elif zone.strength_score >= 70:
+            breakout_prob = 'HIGH ⭐⭐'
+        elif zone.strength_score >= 60:
+            breakout_prob = 'MEDIUM ⭐'
+        else:
+            breakout_prob = 'LOW'
 
         message = f"""
     🚀 *ACCUMULATION DETECTED*
     ━━━━━━━━━━━━━━━━━
 
-    🪙 *{symbol}* | ⏱️ *{timeframe}*
+    🪙 *{zone.symbol}* | ⏱️ *{zone.timeframe}*
 
     💰 *Price:* `{current_price:,.2f}`
-    📈 *Resistance:* `{zone['resistance']:,.2f}`
-    📉 *Support:* `{zone['support']:,.2f}`
+    📈 *Resistance:* `{zone.resistance:,.2f}`
+    📉 *Support:* `{zone.support:,.2f}`
 
-    📊 *Range:* `{range_size_pct:.2f}%`
+    📊 *Range:* `{range_pct:.2f}%`
     ⏳ *Accumulation Duration:* `{duration_hours:.1f}h`
-    💪 *Strength:* `{strength_score:.1f}/100` ({strength_level})
-    🎯 *Breakout:* {breakout_probability}
+    💪 *Strength:* `{zone.strength_score:.1f}/100` ({zone.strength_level.value})
+    🎯 *Breakout:* {breakout_prob}
 
     *Exchange:* {exchange}
     """.strip()
 
         return self.send_message(message)
 
-    def send_breakout_alert(self, breakout_result: dict, exchange: str) -> bool:
+    def send_breakout_alert(self, signal: BreakoutSignal, exchange: str) -> bool:
         """Send breakout alert"""
-        symbol = breakout_result['symbol']
-        timeframe = breakout_result['timeframe']
-        direction = breakout_result['direction']
-        breakout_type = breakout_result['breakout_type']
-        break_pct = breakout_result['break_pct'] * 100
-        strength_score = breakout_result['strength_score']
-        volume_ratio = breakout_result['volume_ratio']
-
         # Icons and emojis
-        direction_icon = "📈" if direction == 'UP' else "📉"
+        direction_icon = "📈" if signal.direction == 'UP' else "📉"
         type_emoji = {
             'SOFT_BREAK': '🟡',
             'CONFIRMED_BREAK': '🟠',
             'STRONG_BREAK': '🔴'
-        }.get(breakout_type, '⚪')
+        }.get(signal.breakout_type.value, '⚪')
+
+        # Calculate break percentage
+        break_pct = signal.break_pct * 100
 
         message = f"""
     🚨 *BREAKOUT ALERT* {direction_icon}
     ━━━━━━━━━━━━━━━━━━
 
-    🪙 *{symbol}* | ⏱️ *{timeframe}* | {type_emoji}
+    🪙 *{signal.zone.symbol}* | ⏱️ *{signal.zone.timeframe}* | {type_emoji}
 
-    💰 *Price:* `{breakout_result['current_price']:.6f}`
-    🎯 *Direction:* {direction}
-    📏 *Breakout:* `{break_pct:.2f}%` ({breakout_type})
+    💰 *Price:* `{signal.current_price:.6f}`
+    🎯 *Direction:* {signal.direction.value}
+    📏 *Breakout:* `{break_pct:.2f}%` ({signal.breakout_type.value})
         
-    💪 *Strength Score:* `{strength_score:.1f}/100`
-    📊 *Volume Ratio:* `{volume_ratio:.2f}x`
+    💪 *Strength Score:* `{signal.strength_score:.1f}/100`
+    📊 *Volume Ratio:* `{signal.volume_ratio:.2f}x`
 
-    🛡️ *Support:* `{breakout_result['support']:.6f}`
-    🎯 *Resistance:* `{breakout_result['resistance']:.6f}`
+    🛡️ *Support:* `{signal.zone.support:.6f}`
+    🎯 *Resistance:* `{signal.zone.resistance:.6f}`
 
     🏢 *Exchange:* {exchange}
     """.strip()
