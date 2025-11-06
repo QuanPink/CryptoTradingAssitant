@@ -22,7 +22,7 @@ class ZoneStatus(Enum):
     ACTIVE = "ACTIVE"  # Watching for breakout
     BREAKOUT = "BREAKOUT"  # Broken but still monitoring (false break)
     COMPLETED = "COMPLETED"  # Strong break, stop monitoring
-
+    FAILED = "FAILED"
 
 class StrengthLevel(Enum):
     """Accumulation strength classification"""

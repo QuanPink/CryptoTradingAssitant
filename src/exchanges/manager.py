@@ -23,9 +23,6 @@ class ExchangeManager:
     def __init__(self, priority: List[str]):
         """
         Initialize exchange manager
-
-        Args:
-            priority: List of exchange names in priority order
         """
         self.exchanges: Dict[str, ExchangeInterface] = {}
         self.priority = priority
@@ -49,12 +46,6 @@ class ExchangeManager:
     def detect_exchange(self, symbol: str) -> Optional[str]:
         """
         Auto-detect which exchange supports a symbol (with caching)
-
-        Args:
-            symbol: Trading pair (e.g., 'BTC/USDT')
-
-        Returns:
-            Exchange name or None if not found
         """
         # Check cache first
         cached = self.cache.get('symbol_exchange', symbol)
@@ -94,14 +85,6 @@ class ExchangeManager:
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> Optional[pd.DataFrame]:
         """
         Fetch OHLCV data with auto-detection
-
-        Args:
-            symbol: Trading pair
-            timeframe: Timeframe
-            limit: Number of candles
-
-        Returns:
-            DataFrame or None
         """
         # Auto-detect exchange
         exchange_name = self.detect_exchange(symbol)
@@ -120,12 +103,6 @@ class ExchangeManager:
     def get_exchange_name(self, symbol: str) -> Optional[str]:
         """
         Get exchange name for a symbol
-
-        Args:
-            symbol: Trading pair (e.g., 'BTC/USDT')
-
-        Returns:
-            Exchange name ('binance' or 'bybit') or None if not found
         """
         return self.detect_exchange(symbol)
 
