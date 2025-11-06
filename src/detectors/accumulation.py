@@ -155,8 +155,10 @@ class AccumulationService:
         if len(df) < config['N_volume_lookback'] + config['N_range']:
             return False
 
+        vol_data = df.iloc[:-1]
+
         current_volume = df['volume'].tail(config['N_range']).mean()
-        previous_volume = df['volume'].tail(config['N_volume_lookback'] + config['N_range']).head(
+        previous_volume = vol_data['volume'].tail(config['N_volume_lookback'] + config['N_range']).head(
             config['N_volume_lookback']).mean()
 
         if previous_volume == 0:
@@ -291,14 +293,12 @@ class AccumulationService:
         """
         config = self.thresholds[timeframe]
 
-        current_volume = df['volume'].tail(config['N_range']).mean()
-        previous_volume = df['volume'].tail(config['N_volume_lookback'] + config['N_range']).head(
+        vol_data = df.iloc[:-1]
+
+        current_volume = vol_data['volume'].tail(config['N_range']).mean()
+        previous_volume = vol_data['volume'].tail(config['N_volume_lookback'] + config['N_range']).head(
             config['N_volume_lookback']).mean()
 
         volume_ratio = current_volume / previous_volume if previous_volume > 0 else 1
 
-        return {
-            'current_volume': current_volume,
-            'previous_volume': previous_volume,
-            'volume_ratio': volume_ratio
-        }
+        return {'current_volume': current_volume, 'previous_volume': previous_volume, 'volume_ratio': volume_ratio}
