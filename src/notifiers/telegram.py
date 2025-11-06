@@ -140,13 +140,15 @@ class TelegramNotifier:
         # Icons and emojis
         direction_icon = "📈" if signal.direction == 'UP' else "📉"
         type_emoji = {
-            'SOFT_BREAK': '🟡',
-            'CONFIRMED_BREAK': '🟠',
-            'STRONG_BREAK': '🔴'
+            'SOFT': '🟡',
+            'CONFIRMED': '🟠',
+            'STRONG': '🔴'
         }.get(signal.breakout_type.value, '⚪')
 
         # Calculate break percentage
         break_pct = signal.break_pct * 100
+
+        breakout_type_text = signal.breakout_type.value.replace('_', '\\_')
 
         message = f"""
     🚨 *BREAKOUT ALERT* {direction_icon}
@@ -156,7 +158,7 @@ class TelegramNotifier:
 
     💰 *Price:* `{signal.current_price:.6f}`
     🎯 *Direction:* {signal.direction.value}
-    📏 *Breakout:* `{break_pct:.2f}%` ({signal.breakout_type.value})
+    📏 *Breakout:* `{break_pct:.2f}%` ({breakout_type_text})
         
     💪 *Strength Score:* `{signal.strength_score:.1f}/100`
     📊 *Volume Ratio:* `{signal.volume_ratio:.2f}x`
