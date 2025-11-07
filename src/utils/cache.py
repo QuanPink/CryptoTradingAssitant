@@ -11,7 +11,7 @@ class MemoryCache:
     Thread-safe caching for API responses and calculations
     """
 
-    def __init__(self, maxsize: int = 1000):
+    def __init__(self, maxsize: int = 100):
         self._caches: Dict[str, TTLCache] = {}
         self.maxsize = maxsize
 
