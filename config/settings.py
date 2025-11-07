@@ -79,44 +79,44 @@ ACCUMULATION_THRESHOLDS: Dict[str, Dict] = {
     }
 }
 
-# Range thresholds (% của giá)
+# Range thresholds
 SYMBOL_RANGE_SETTINGS: Dict[str, Dict[str, float]] = {
     'BTC/USDT': {
-        '5m': 0.3,  # Range tối đa 0.3%
-        '15m': 0.6,
-        '30m': 0.9,
+        '5m': 0.3,
+        '15m': 0.55,
+        '30m': 0.7,
         '1h': 1.2,
     },
     'ETH/USDT': {
         '5m': 0.35,
-        '15m': 0.9,
+        '15m': 0.8,
         '30m': 1.5,
         '1h': 2.0,
     },
     'BNB/USDT': {
-        '5m': 0.40,
-        '15m': 1,
-        '30m': 1.5,
-        '1h': 2.3,
+        '5m': 0.4,
+        '15m': 0.8,
+        '30m': 1.0,
+        '1h': 1.5,
     },
     'SOL/USDT': {
-        '5m': 0.40,
+        '5m': 0.4,
         '15m': 0.65,
-        '30m': 1,
-        '1h': 1.30,
+        '30m': 1.1,
+        '1h': 1.5,
     },
     'HYPE/USDT': {
-        '5m': 0.55,
-        '15m': 1.0,
-        '30m': 1.5,
-        '1h': 3.0,
+        '5m': 0.8,
+        '15m': 1.5,
+        '30m': 2.0,
+        '1h':2.8,
     },
 }
 
 # Breakout detection thresholds
 BREAKOUT_THRESHOLDS: Dict[str, Dict] = {
     '5m': {
-        'soft_break': 0.0008,  # 0.15%
+        'soft_break': 0.0008,  # 0.08%
         'confirmed_break': 0.003,  # 0.3%
         'strong_break': 0.005,  # 0.5%
         'volume_spike_threshold': 1.5,

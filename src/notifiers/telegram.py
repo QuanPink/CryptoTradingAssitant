@@ -20,7 +20,7 @@ class TelegramNotifier:
         self.base_url = f'https://api.telegram.org/bot{bot_token}'
 
         self.last_send = 0
-        self.min_interval = 0.5  # 500ms between messages
+        self.min_interval = 0.5
 
     def send_message(self, text: str, parse_mode: str = 'Markdown') -> bool:
         """Send message to Telegram"""
@@ -37,11 +37,7 @@ class TelegramNotifier:
             time.sleep(sleep_time)
 
         url = f'{self.base_url}/sendMessage'
-        payload = {
-            'chat_id': self.chat_id,
-            'text': text,
-            'parse_mode': parse_mode
-        }
+        payload = {'chat_id': self.chat_id, 'text': text, 'parse_mode': parse_mode}
 
         try:
             response = requests.post(url, json=payload, timeout=30)
@@ -51,11 +47,10 @@ class TelegramNotifier:
                 logger.info('✅ Telegram message sent successfully')
                 return True
             elif response.status_code == 429:
-                # Rate limit hit - retry once
-                retry_after = response.json().get('parameters', {}).get('retry_after', 60)
+                retry_after = response.json().get('parameters', {}).get('retry_after', 30)
                 logger.warning(f'⚠️ Telegram rate limit hit! Retry after {retry_after}s')
                 time.sleep(retry_after)
-                return self.send_message(text, parse_mode)  # Retry once
+                return self.send_message(text, parse_mode)
             else:
                 logger.warning(f'⚠️ Telegram failed: {response.status_code} {response.text}')
                 return False
@@ -70,33 +65,35 @@ class TelegramNotifier:
     def send_start_notification(self, symbols: List[str], timeframes: List[str]) -> bool:
         """Send bot start notification"""
         symbols_str = ", ".join([s.replace('/USDT', '') for s in symbols])
+        indent = "\u00A0" * 3
 
-        message = f"""
-    🤖 *BOT STARTED*
-    ━━━━━━━━━━━━━━━
+        lines = [
+            "🤖 *BOT STARTED*",
+            "━━━━━━━━━━━━━━━",
+            "",
+            f"{indent}• *Symbols:* {symbols_str}",
+            f"{indent}• *Timeframes:* {', '.join(timeframes)}",
+            "",
+            f"{indent}⏰ *Started at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
+            ""
+        ]
 
-    📊 *Monitoring:*
-    • *Symbols:* {symbols_str}
-    • *Timeframes:* {', '.join(timeframes)}
-
-    ⏰ *Started at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`
-    """.strip()
-
-        return self.send_message(message)
+        return self.send_message("\n".join(lines))
 
     def send_stop_notification(self, total_accumulations: int = 0) -> bool:
         """Send bot stop notification"""
-        message = f"""
-    🛑 *BOT STOPPED*
-    ━━━━━━━━━━━━━━━
+        indent = "\u00A0" * 3
+        lines = [
+            "🛑 *BOT STOPPED*",
+            "━━━━━━━━━━━━━━━",
+            "",
+            f"{indent}• *Accumulations found:* `{total_accumulations}`",
+            "",
+            f"{indent}⏰ *Stopped at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
+            ""
+        ]
 
-    📈 *Analysis Summary:*
-    • *Accumulations found:* `{total_accumulations}`
-
-    ⏰ *Stopped at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`
-    """.strip()
-
-        return self.send_message(message)
+        return self.send_message("\n".join(lines))
 
     def send_accumulation_alert(self, zone: AccumulationZone, exchange: str, current_price: float) -> bool:
         """Send formatted accumulation alert"""
@@ -106,70 +103,50 @@ class TelegramNotifier:
         )
         range_pct = zone.strength_details.get('range_size_pct', 0)
 
-        if zone.strength_score >= 80:
-            breakout_prob = 'VERY HIGH ⭐⭐⭐'
-        elif zone.strength_score >= 70:
-            breakout_prob = 'HIGH ⭐⭐'
-        elif zone.strength_score >= 60:
-            breakout_prob = 'MEDIUM ⭐'
-        else:
-            breakout_prob = 'LOW'
+        indent = "\u00A0" * 2
+        lines = [
+            f"{indent}🚀 *ACCUMULATION DETECTED*",
+            "━━━━━━━━━━━━━━━",
+            "",
+            f"{indent}🪙 *{zone.symbol}*  |  ⏱️ *{zone.timeframe}*  |  🎯 {zone.strength_score:.1f}",
+            "",
+            f"{indent}💰 *Price:* `{current_price:.2f}`",
+            f"{indent}📈 *Resistance:* `{zone.resistance:.2f}`",
+            f"{indent}📉 *Support:* `{zone.support:.2f}`",
+            "",
+            f"{indent}↔️ *Range:* `{range_pct:.2f}%`",
+            f"{indent}⏳ *Accumulation Duration:* `{duration_hours:.1f}h`",
+            "",
+            f"{indent}🏢 *Exchange:* {exchange}",
+            "",
+        ]
 
-        message = f"""
-    🚀 *ACCUMULATION DETECTED*
-    ━━━━━━━━━━━━━━━━━
-
-    🪙 *{zone.symbol}* | ⏱️ *{zone.timeframe}*
-
-    💰 *Price:* `{current_price:,.2f}`
-    📈 *Resistance:* `{zone.resistance:,.2f}`
-    📉 *Support:* `{zone.support:,.2f}`
-
-    📊 *Range:* `{range_pct:.2f}%`
-    ⏳ *Accumulation Duration:* `{duration_hours:.1f}h`
-    💪 *Strength:* `{zone.strength_score:.1f}/100` ({zone.strength_level.value})
-    🎯 *Breakout:* {breakout_prob}
-
-    *Exchange:* {exchange}
-    """.strip()
-
-        return self.send_message(message)
+        return self.send_message("\n".join(lines))
 
     def send_breakout_alert(self, signal: BreakoutSignal, exchange: str) -> bool:
         """Send breakout alert"""
-        # Icons and emojis
-        direction_icon = "📈" if signal.direction == 'UP' else "📉"
-        type_emoji = {
-            'SOFT': '🟡',
-            'CONFIRMED': '🟠',
-            'STRONG': '🔴'
-        }.get(signal.breakout_type.value, '⚪')
-
-        # Calculate break percentage
+        direction_icon = "💥" if signal.direction == 'UP' else "💣"
         break_pct = signal.break_pct * 100
 
-        breakout_type_text = signal.breakout_type.value.replace('_', '\\_')
+        indent = "\u00A0" * 2
+        lines = [
+            f"{indent}{direction_icon} *BREAKOUT {signal.direction.value}*",
+            "━━━━━━━━━━━━━━━",
+            "",
+            f"{indent}🪙 *{signal.zone.symbol}*  |  ⏱️ *{signal.zone.timeframe}*  |  🎯 {signal.strength_score:.1f}",
+            "",
+            f"{indent}💰 *Price:* `{signal.current_price:.6f}`",
+            f"{indent}📏 *Breakout:* `{break_pct:.2f}%` ({signal.breakout_type.value})",
+            f"{indent}🔊 *Volume Ratio:* `{signal.volume_ratio:.2f}x`",
+            "",
+            f"{indent}📈 *Resistance:* `{signal.zone.resistance:.6f}`",
+            f"{indent}📉 *Support:* `{signal.zone.support:.6f}`",
+            "",
+            f"{indent}🏢 *Exchange:* {exchange}",
+            "",
+        ]
 
-        message = f"""
-    🚨 *BREAKOUT ALERT* {direction_icon}
-    ━━━━━━━━━━━━━━━━━━
-
-    🪙 *{signal.zone.symbol}* | ⏱️ *{signal.zone.timeframe}* | {type_emoji}
-
-    💰 *Price:* `{signal.current_price:.6f}`
-    🎯 *Direction:* {signal.direction.value}
-    📏 *Breakout:* `{break_pct:.2f}%` ({breakout_type_text})
-        
-    💪 *Strength Score:* `{signal.strength_score:.1f}/100`
-    📊 *Volume Ratio:* `{signal.volume_ratio:.2f}x`
-
-    🛡️ *Support:* `{signal.zone.support:.6f}`
-    🎯 *Resistance:* `{signal.zone.resistance:.6f}`
-
-    🏢 *Exchange:* {exchange}
-    """.strip()
-
-        return self.send_message(message)
+        return self.send_message("\n".join(lines))
 
     @staticmethod
     def _calculate_duration_hours(timeframe: str, duration_bars: int) -> float:

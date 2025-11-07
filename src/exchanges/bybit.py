@@ -1,3 +1,4 @@
+import time
 from typing import Optional
 
 import ccxt
@@ -10,9 +11,7 @@ logger = get_logger(__name__)
 
 
 class BybitExchange(ExchangeInterface):
-    """
-    Bybit Futures (USDT perpetual) adapter
-    """
+    """Bybit Futures (USDT perpetual) adapter"""
 
     def __init__(self):
         """Initialize Bybit client with futures market"""
@@ -22,15 +21,11 @@ class BybitExchange(ExchangeInterface):
         logger.info(f"✅ Initialized {self.name} exchange (futures)")
 
     def format_symbol(self, symbol: str) -> str:
-        """
-        Format symbol for Bybit API
-        """
+        """Format symbol for Bybit API"""
         return symbol + ':USDT'
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> Optional[pd.DataFrame]:
-        """
-        Fetch OHLCV data from Bybit Futures
-        """
+        """Fetch OHLCV data from Bybit Futures"""
         try:
             formatted_symbol = self.format_symbol(symbol)
 
@@ -50,6 +45,10 @@ class BybitExchange(ExchangeInterface):
 
         except ccxt.BadSymbol as e:
             logger.error(f"Invalid symbol {symbol} on Bybit: {e}")
+            return None
+        except ccxt.RateLimitExceeded as e:  # ✅ Handle rate limit
+            logger.warning(f"⚠️ Rate limit exceeded for {symbol}: {e}")
+            time.sleep(3)
             return None
         except ccxt.NetworkError as e:
             logger.error(f"Network error fetching {symbol}: {e}")

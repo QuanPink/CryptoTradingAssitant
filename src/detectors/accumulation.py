@@ -12,20 +12,12 @@ logger = get_logger(__name__)
 
 
 class AccumulationService:
-    """
-    Unified service for detecting and analyzing accumulation zones
-    Combines detection logic + strength analysis
-    """
-
     def __init__(self):
         self.thresholds = ACCUMULATION_THRESHOLDS
         self.technical = TechnicalIndicator()
 
     def detect(self, df: pd.DataFrame, timeframe: str, symbol: str) -> Optional[AccumulationZone]:
-        """
-        Main entry point: detect accumulation and return zone
-        """
-
+        """Detect accumulation and return zone"""
         logger.info(f"🔍 Checking accumulation on {timeframe}...")
 
         # Step 1: Check accumulation conditions
@@ -43,7 +35,7 @@ class AccumulationService:
 
         # Step 4: Create immutable zone object
         return AccumulationZone(
-            symbol="",  # Will be set by caller
+            symbol="",
             timeframe=timeframe,
             support=zone_data['support'],
             resistance=zone_data['resistance'],
@@ -53,13 +45,10 @@ class AccumulationService:
         )
 
     def _check_range(self, df: pd.DataFrame, timeframe: str, symbol: str) -> bool:
-        """
-        Check if price is in tight accumulation range
-        """
+        """Check if price is in tight accumulation range"""
         config = ACCUMULATION_THRESHOLDS[timeframe]
-        n_range = config['N_range']
 
-        if len(df) < n_range:
+        if len(df) < config['N_range']:
             return False
 
         recent_data = df.iloc[-(config['N_range'] + 1):-1].copy()
@@ -79,11 +68,11 @@ class AccumulationService:
         wick_ratio = (wick_size / body_range) if body_range > 0 else 0
         wick_tolerance = config.get('wick_tolerance', 0.30)
 
-        if wick_ratio <= wick_tolerance:  # ← Wicks NHỎ → Dùng FULL
+        if wick_ratio <= wick_tolerance:  # SMALL Wicks → FULL
             use_high = full_high
             use_low = full_low
             range_type = "FULL"
-        else:  # ← Wicks LỚN → Dùng BODY (lọc spike)
+        else:  # BIG WICKS → BODY (filter spikes)
             use_high = body_high
             use_low = body_low
             range_type = "BODY"
@@ -122,9 +111,7 @@ class AccumulationService:
 
     @staticmethod
     def _count_candles_in_range(df, range_high, range_low, timeframe):
-        """
-        Count candles with body in range
-        """
+        """Count candles with body in range"""
         config = ACCUMULATION_THRESHOLDS[timeframe]
         body_tolerance = config.get('body_exceed_tolerance', 0.03)
 
@@ -147,9 +134,7 @@ class AccumulationService:
         return count
 
     def _check_volume(self, df: pd.DataFrame, timeframe: str) -> bool:
-        """
-        Check if volume is contracting (accumulation signature)
-        """
+        """Check if volume is contracting (accumulation signature)"""
         config = self.thresholds[timeframe]
 
         if len(df) < config['N_volume_lookback'] + config['N_range']:
@@ -182,9 +167,7 @@ class AccumulationService:
         return is_contracted
 
     def _calculate_zone_boundaries(self, df: pd.DataFrame, timeframe: str) -> Dict:
-        """
-        Calculate support/resistance levels
-        """
+        """Calculate support/resistance levels"""
         config = self.thresholds[timeframe]
         recent_data = df.iloc[-(config['N_range'] + 1):-1]
 
@@ -201,30 +184,23 @@ class AccumulationService:
         current_price = recent_data['close'].iloc[-1]
 
         # Add buffer to avoid false breakouts
-        buffer_pct = config.get('zone_buffer_pct', 0.0)  # Default 15%
+        buffer_pct = config.get('zone_buffer_pct', 0.0)
         buffer = actual_range * buffer_pct
 
         support = actual_low - buffer
         resistance = actual_high + buffer
 
-        return {
-            'support': support,
-            'resistance': resistance,
-            'range_size_pct': ((resistance - support) / current_price) * 100
-        }
+        return {'support': support, 'resistance': resistance,
+                'range_size_pct': ((resistance - support) / current_price) * 100}
 
     def _analyze_strength(self, df: pd.DataFrame, timeframe: str, zone_data: Dict) -> Dict:
-        """
-        Analyze accumulation strength (0-100 score)
-        """
+        """Analyze accumulation strength (0-100 score) """
         config = self.thresholds[timeframe]
         score = 0
         details = {}
 
         # 1. Previous Trend
-        trend_data = self.technical.identify_trend(
-            df, config['trend_lookback'], config['ma_period']
-        )
+        trend_data = self.technical.identify_trend(df, config['trend_lookback'], config['ma_period'])
         trend_score = trend_data['trend_score']
         score += trend_score
         details['trend_score'] = trend_score
@@ -256,16 +232,11 @@ class AccumulationService:
         score += candle_score
         details['candle_score'] = candle_score
 
-        return {
-            'strength_score': round(score, 1),
-            'details': details
-        }
+        return {'strength_score': round(score, 1), 'details': details}
 
     @staticmethod
     def _calculate_range_score(range_size_pct: float) -> float:
-        """
-        Score based on range tightness
-        """
+        """Score based on range tightness"""
         if range_size_pct < 0.3:
             return 25
         elif range_size_pct < 0.5:
@@ -276,9 +247,7 @@ class AccumulationService:
 
     @staticmethod
     def _calculate_volume_score(volume_ratio: float) -> float:
-        """
-        Score based on volume contraction
-        """
+        """Score based on volume contraction"""
         if volume_ratio < 0.5:
             return 25
         elif volume_ratio < 0.7:
@@ -288,9 +257,7 @@ class AccumulationService:
         return 0
 
     def _get_volume_data(self, df: pd.DataFrame, timeframe: str) -> Dict:
-        """
-        Get volume comparison data
-        """
+        """ volume comparison data"""
         config = self.thresholds[timeframe]
 
         vol_data = df.iloc[:-1]

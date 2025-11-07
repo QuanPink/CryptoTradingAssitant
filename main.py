@@ -16,6 +16,8 @@ from src.models import AccumulationZone
 from src.notifiers.telegram import TelegramNotifier
 from src.utils import TTLDict
 from src.utils.logger import get_logger
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock, Semaphore
 
 logger = get_logger(__name__)
 
@@ -35,6 +37,15 @@ class TradingBot:
         # State management
         self.accumulation_zones: Dict[str, AccumulationZone] = {}
         self.notified_accumulations = TTLDict(ttl=7200)
+
+        self.max_workers = 5
+        self.zones_lock = Lock()
+        self.notified_lock = Lock()
+
+        self.exchange_rate_limiters = {
+            'binance': Semaphore(10),
+            'bybit': Semaphore(2),
+        }
 
         self.is_running = False
 
@@ -85,38 +96,74 @@ class TradingBot:
             self.stop_monitoring()
 
     def _run_cycle(self, cycle_count: int):
-        """Run one monitoring cycle"""
+        """Run one monitoring cycle - PARALLEL VERSION"""
         # Print header
         print(f"\n{'=' * 60}")
         print(f"🔄 CYCLE #{cycle_count}: {time.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'=' * 60}")
 
-        # Scan all symbols and timeframes
+        # ✅ Tạo danh sách tất cả tasks
+        tasks = [
+            (symbol, timeframe)
+            for symbol in SYMBOLS
+            for timeframe in TIMEFRAMES
+        ]
+
         total_accumulations = 0
         total_breakouts = 0
+        completed_tasks = 0
+        failed_tasks = 0
 
-        for symbol in SYMBOLS:
-            for timeframe in TIMEFRAMES:
-                result = self._process_symbol_timeframe(symbol, timeframe)
+        # ✅ Chạy song song với ThreadPoolExecutor
+        print(f"🚀 Processing {len(tasks)} tasks with {self.max_workers} workers...")
 
-                if result:
-                    if result.get('accumulation_detected'):
-                        total_accumulations += 1
-                    if result.get('breakout_detected'):
-                        total_breakouts += 1
+        with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+            # Submit tất cả tasks
+            future_to_task = {
+                executor.submit(self._process_symbol_timeframe, symbol, timeframe): (symbol, timeframe)
+                for symbol, timeframe in tasks
+            }
 
+            # Collect results khi hoàn thành
+            for future in as_completed(future_to_task):
+                symbol, timeframe = future_to_task[future]
+
+                try:
+                    result = future.result(timeout=30)  # Timeout 30s mỗi request
+
+                    if result:
+                        completed_tasks += 1
+                        if result.get('accumulation_detected'):
+                            total_accumulations += 1
+                        if result.get('breakout_detected'):
+                            total_breakouts += 1
+                    else:
+                        failed_tasks += 1
+
+                except TimeoutError:
+                    logger.error(f"⏱️ Timeout: {symbol} {timeframe}")
+                    failed_tasks += 1
+                except Exception as e:
+                    logger.error(f"❌ Error: {symbol} {timeframe}: {e}")
+                    failed_tasks += 1
+
+        # Cleanup
         self.notified_accumulations.cleanup()
 
         # Print summary
         logger.info("\n📊 CYCLE SUMMARY:")
+        logger.info(f"   ✅ Tasks completed: {completed_tasks}/{len(tasks)}")
+        logger.info(f"   ❌ Tasks failed: {failed_tasks}/{len(tasks)}")
         logger.info(f"   ✅ Accumulations: {total_accumulations}")
         logger.info(f"   🚀 Breakouts: {total_breakouts}")
         logger.info(f"   📍 Active zones: {len(self.accumulation_zones)}")
         logger.info(f"   📋 Notified accumulations: {len(self.notified_accumulations)}")
 
-        print("\n🔍 DEBUG - Active zones breakdown:")
-        for key, zone in self.accumulation_zones.items():
-            print(f"   - {key}: support={zone.support:.2f}, resistance={zone.resistance:.2f}")
+        # ✅ Thread-safe zone breakdown
+        with self.zones_lock:
+            print("\n🔍 DEBUG - Active zones breakdown:")
+            for key, zone in self.accumulation_zones.items():
+                print(f"   - {key}: support={zone.support:.2f}, resistance={zone.resistance:.2f}")
 
     @staticmethod
     def _calculate_zone_overlap(support1: float, resistance1: float, support2: float, resistance2: float) -> float:
@@ -136,119 +183,131 @@ class TradingBot:
         return overlap_size / smaller_zone
 
     def _update_zone_storage(self, key: str, new_zone: AccumulationZone):
-        """
-        Central duplicate handling for accumulation zones
-        """
-        if key in self.accumulation_zones:
-            old_zone = self.accumulation_zones[key]
-            overlap = self._calculate_zone_overlap(new_zone.support, new_zone.resistance, old_zone.support,
-                                                   old_zone.resistance)
+        """Central duplicate handling for accumulation zones"""
+        with self.zones_lock:
+            if key in self.accumulation_zones:
+                old_zone = self.accumulation_zones[key]
+                overlap = self._calculate_zone_overlap(new_zone.support, new_zone.resistance, old_zone.support,
+                                                       old_zone.resistance)
 
-            if overlap >= 0.9:
-                refreshed_zone = old_zone.__class__(
-                    symbol=old_zone.symbol,
-                    timeframe=old_zone.timeframe,
-                    support=old_zone.support,
-                    resistance=old_zone.resistance,
-                    created_at=old_zone.created_at,
-                    strength_score=new_zone.strength_score,
-                    strength_details=new_zone.strength_details
-                )
-                self.accumulation_zones[key] = refreshed_zone
-                logger.debug(f"Keeping existing zone {key}: overlap {overlap:.0%}")
-                return
+                if overlap >= 0.9:
+                    refreshed_zone = old_zone.__class__(
+                        symbol=old_zone.symbol,
+                        timeframe=old_zone.timeframe,
+                        support=old_zone.support,
+                        resistance=old_zone.resistance,
+                        created_at=old_zone.created_at,
+                        strength_score=new_zone.strength_score,
+                        strength_details=new_zone.strength_details
+                    )
+                    self.accumulation_zones[key] = refreshed_zone
+                    logger.debug(f"Keeping existing zone {key}: overlap {overlap:.0%}")
+                    return
 
-            logger.info(f"Replacing zone {key}: overlap={overlap:.0%}")
-            self.accumulation_zones[key] = new_zone
-        else:
-            # New
-            logger.info(f"Adding new zone {key}")
-            self.accumulation_zones[key] = new_zone
+                logger.info(f"Replacing zone {key}: overlap={overlap:.0%}")
+                self.accumulation_zones[key] = new_zone
+            else:
+                # New
+                logger.info(f"Adding new zone {key}")
+                self.accumulation_zones[key] = new_zone
 
     def _process_symbol_timeframe(self, symbol: str, timeframe: str) -> Optional[Dict]:
-        """
-        Process one symbol/timeframe combination
-        """
+        """Process one symbol/timeframe combination"""
         try:
-            # Fetch OHLCV data
-            df = self.exchange_manager.fetch_ohlcv(symbol, timeframe, 100)
+            exchange_name = self.exchange_manager.get_exchange_name(symbol)
+            rate_limiter = self.exchange_rate_limiters.get(exchange_name)
 
-            if df is None or df.empty:
-                logger.warning(f"No data for {symbol} {timeframe}")
-                return None
+            # Acquire semaphore
+            if rate_limiter:
+                rate_limiter.acquire()
 
-            current_price = df['close'].iloc[-1]
-            current_volume = df['volume'].iloc[-1]
-            volume_ma = df['volume'].rolling(20).mean().iloc[-1]
+            try:
+                # Fetch OHLCV data
+                df = self.exchange_manager.fetch_ohlcv(symbol, timeframe, 100)
 
-            result = {
-                'symbol': symbol,
-                'timeframe': timeframe,
-                'accumulation_detected': False,
-                'breakout_detected': False,
-                'price': current_price
-            }
+                if df is None or df.empty:
+                    logger.warning(f"No data for {symbol} {timeframe}")
+                    return None
 
-            key = f"{symbol}_{timeframe}"
+                current_price = df['close'].iloc[-1]
+                current_volume = df['volume'].iloc[-1]
+                volume_ma = df['volume'].rolling(20).mean().iloc[-1]
 
-            # Check for accumulation
-            zone = self.accumulation_service.detect(df, timeframe, symbol)
+                result = {
+                    'symbol': symbol,
+                    'timeframe': timeframe,
+                    'accumulation_detected': False,
+                    'breakout_detected': False,
+                    'price': current_price
+                }
 
-            if zone:
-                # Set symbol in zone
-                zone = zone.__class__(
-                    symbol=symbol,
-                    timeframe=zone.timeframe,
-                    support=zone.support,
-                    resistance=zone.resistance,
-                    created_at=zone.created_at,
-                    strength_score=zone.strength_score,
-                    strength_details=zone.strength_details
-                )
-
-                result['accumulation_detected'] = True
                 key = f"{symbol}_{timeframe}"
 
-                self._update_zone_storage(key, zone)
+                # Check for accumulation
+                zone = self.accumulation_service.detect(df, timeframe, symbol)
 
-                if zone.key not in self.notified_accumulations:
-                    exchange = self.exchange_manager.get_exchange_name(symbol)
-                    self.telegram.send_accumulation_alert(zone, exchange, current_price)
-                    self.notified_accumulations[zone.key] = time.time()
-                    print(f"   ✅ {timeframe}: ACCUMULATION (score: {zone.strength_score:.1f})")
-                    print("   📤 Telegram alert sent")
-                else:
-                    print(f"   ⏭️ {timeframe}: Accumulation (already notified)")
-
-            else:
-                if key in self.accumulation_zones:
-                    logger.warning(
-                        f"❌ Accumulation FAILED: {key} - "
-                        f"No longer meets accumulation criteria"
+                if zone:
+                    # Set symbol in zone
+                    zone = zone.__class__(
+                        symbol=symbol,
+                        timeframe=zone.timeframe,
+                        support=zone.support,
+                        resistance=zone.resistance,
+                        created_at=zone.created_at,
+                        strength_score=zone.strength_score,
+                        strength_details=zone.strength_details
                     )
-                    del self.accumulation_zones[key]
 
-            # Check for breakout
-            breakout_signal = self.breakout_service.check_breakouts(self.accumulation_zones, symbol, timeframe,
-                                                                    current_price, current_volume, volume_ma, df)
+                    result['accumulation_detected'] = True
+                    key = f"{symbol}_{timeframe}"
 
-            if breakout_signal:
-                result['breakout_detected'] = True
+                    self._update_zone_storage(key, zone)
+                    with self.notified_lock:
+                        if zone.key not in self.notified_accumulations:
+                            exchange = self.exchange_manager.get_exchange_name(symbol)
+                            self.telegram.send_accumulation_alert(zone, exchange, current_price)
+                            self.notified_accumulations[zone.key] = time.time()
+                            print(f"   ✅ {timeframe}: ACCUMULATION (score: {zone.strength_score:.1f})")
+                            print("   📤 Telegram alert sent")
+                        else:
+                            print(f"   ⏭️ {timeframe}: Accumulation (already notified)")
 
-                exchange = self.exchange_manager.get_exchange_name(symbol)
-                self.telegram.send_breakout_alert(breakout_signal, exchange)
+                else:
+                    with self.zones_lock:
+                        if key in self.accumulation_zones:
+                            logger.warning(
+                                f"❌ Accumulation FAILED: {key} - "
+                                f"No longer meets accumulation criteria"
+                            )
+                            del self.accumulation_zones[key]
 
-                print(
-                    f"   🚀 {timeframe}: BREAKOUT {breakout_signal.direction.value} "
-                    f"({breakout_signal.breakout_type.value})"
-                )
+                # Check for breakout
+                breakout_signal = self.breakout_service.check_breakouts(self.accumulation_zones, symbol, timeframe,
+                                                                        current_price, current_volume, volume_ma, df)
 
-                key = f"{symbol}_{timeframe}"
-                if key in self.accumulation_zones:
-                    del self.accumulation_zones[key]
-                    logger.info(f"🗑️ Removed zone after breakout: {key}")
+                if breakout_signal:
+                    result['breakout_detected'] = True
 
-            return result
+                    exchange = self.exchange_manager.get_exchange_name(symbol)
+                    self.telegram.send_breakout_alert(breakout_signal, exchange)
+
+                    print(
+                        f"   🚀 {timeframe}: BREAKOUT {breakout_signal.direction.value} "
+                        f"({breakout_signal.breakout_type.value})"
+                    )
+
+                    key = f"{symbol}_{timeframe}"
+                    with self.zones_lock:
+                        if key in self.accumulation_zones:
+                            del self.accumulation_zones[key]
+                            logger.info(f"🗑️ Removed zone after breakout: {key}")
+
+                return result
+
+            finally:
+                # ✅ Release semaphore
+                if rate_limiter:
+                    rate_limiter.release()
 
         except Exception as e:
             logger.error(f"Error processing {symbol} {timeframe}: {e}")
