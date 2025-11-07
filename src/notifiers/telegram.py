@@ -105,8 +105,8 @@ class TelegramNotifier:
 
         indent = "\u00A0" * 2
         lines = [
-            f"{indent}🚀 *ACCUMULATION DETECTED*",
-            "━━━━━━━━━━━━━━━",
+            "🚀 *ACCUMULATION DETECTED*",
+            f"{indent}━━━━━━━━━━━━━━━",
             "",
             f"{indent}🪙 *{zone.symbol}*  |  ⏱️ *{zone.timeframe}*  |  🎯 {zone.strength_score:.1f}",
             "",
@@ -130,8 +130,8 @@ class TelegramNotifier:
 
         indent = "\u00A0" * 2
         lines = [
-            f"{indent}{direction_icon} *BREAKOUT {signal.direction.value}*",
-            "━━━━━━━━━━━━━━━",
+            f"{direction_icon} *BREAKOUT {signal.direction.value}*",
+            f"{indent}━━━━━━━━━━━━━━━",
             "",
             f"{indent}🪙 *{signal.zone.symbol}*  |  ⏱️ *{signal.zone.timeframe}*  |  🎯 {signal.strength_score:.1f}",
             "",

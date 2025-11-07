@@ -1,5 +1,7 @@
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from threading import Lock, Semaphore
 from typing import Dict, Optional
 
 from config import (
@@ -16,8 +18,6 @@ from src.models import AccumulationZone
 from src.notifiers.telegram import TelegramNotifier
 from src.utils import TTLDict
 from src.utils.logger import get_logger
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock, Semaphore
 
 logger = get_logger(__name__)
 
@@ -79,7 +79,6 @@ class TradingBot:
         # Send start notification
         self.telegram.send_start_notification(SYMBOLS, TIMEFRAMES)
         self._wait_until_next_bar(MONITORING_INTERVAL)
-
 
         cycle_count = 0
         try:
@@ -213,6 +212,7 @@ class TradingBot:
 
     def _process_symbol_timeframe(self, symbol: str, timeframe: str) -> Optional[Dict]:
         """Process one symbol/timeframe combination"""
+        df = None
         try:
             exchange_name = self.exchange_manager.get_exchange_name(symbol)
             rate_limiter = self.exchange_rate_limiters.get(exchange_name)
@@ -223,7 +223,7 @@ class TradingBot:
 
             try:
                 # Fetch OHLCV data
-                df = self.exchange_manager.fetch_ohlcv(symbol, timeframe, 100)
+                df = self.exchange_manager.fetch_ohlcv(symbol, timeframe, 50)
 
                 if df is None or df.empty:
                     logger.warning(f"No data for {symbol} {timeframe}")
@@ -312,6 +312,9 @@ class TradingBot:
         except Exception as e:
             logger.error(f"Error processing {symbol} {timeframe}: {e}")
             return None
+        finally:
+            if df is not None:
+                del df
 
     @staticmethod
     def _wait_next_cycle(cycle_start: float):
