@@ -38,7 +38,7 @@ class TradingBot:
         self.accumulation_zones: Dict[str, AccumulationZone] = {}
         self.notified_accumulations = TTLDict(ttl=7200)
 
-        self.max_workers = 5
+        self.max_workers = 2
         self.zones_lock = Lock()
         self.notified_lock = Lock()
 

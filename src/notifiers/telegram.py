@@ -118,7 +118,7 @@ class TelegramNotifier:
             f"{indent}⏳ *Accumulation Duration:* `{duration_hours:.1f}h`",
             "",
             f"{indent}🏢 *Exchange:* {exchange}",
-            "",
+            ""
         ]
 
         return self.send_message("\n".join(lines))
@@ -143,7 +143,7 @@ class TelegramNotifier:
             f"{indent}📉 *Support:* `{signal.zone.support:.6f}`",
             "",
             f"{indent}🏢 *Exchange:* {exchange}",
-            "",
+            ""
         ]
 
         return self.send_message("\n".join(lines))
