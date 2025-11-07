@@ -1,3 +1,4 @@
+import time
 from typing import Optional
 
 import ccxt
@@ -44,6 +45,10 @@ class BinanceExchange(ExchangeInterface):
 
         except ccxt.BadSymbol as e:
             logger.error(f"Invalid symbol {symbol} on Binance: {e}")
+            return None
+        except ccxt.RateLimitExceeded as e:  # ✅ Handle rate limit
+            logger.warning(f"⚠️ Rate limit exceeded for {symbol}: {e}")
+            time.sleep(2)  # Chờ 2s rồi thử lại
             return None
         except ccxt.NetworkError as e:
             logger.error(f"Network error fetching {symbol}: {e}")

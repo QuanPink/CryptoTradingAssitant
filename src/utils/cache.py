@@ -1,4 +1,5 @@
 import time
+from threading import Lock
 from typing import Any, Dict, Optional
 
 from cachetools import TTLCache
@@ -52,7 +53,7 @@ class MemoryCache:
 class TTLDict:
     """
     Dictionary with automatic TTL-based expiry
-    Used for state management with auto-cleanup
+    Thread-safe version with Lock
     """
 
     def __init__(self, ttl: int):
@@ -62,48 +63,55 @@ class TTLDict:
         """
         self.ttl = ttl
         self._data: Dict[str, tuple[Any, float]] = {}
+        self._lock = Lock()  # ✅
 
     def __setitem__(self, key: str, value: Any):
-        """Set item with current timestamp"""
-        self._data[key] = (value, time.time())
+        """Set item with current timestamp - THREAD SAFE"""
+        with self._lock:  # ✅
+            self._data[key] = (value, time.time())
 
     def __getitem__(self, key: str) -> Any:
-        """Get item if not expired, raise KeyError if expired or missing"""
-        if key not in self._data:
-            raise KeyError(key)
+        """Get item if not expired, raise KeyError if expired or missing - THREAD SAFE"""
+        with self._lock:  # ✅
+            if key not in self._data:
+                raise KeyError(key)
 
-        value, timestamp = self._data[key]
-        if time.time() - timestamp > self.ttl:
-            del self._data[key]
-            raise KeyError(key)
+            value, timestamp = self._data[key]
+            if time.time() - timestamp > self.ttl:
+                del self._data[key]
+                raise KeyError(key)
 
-        return value
+            return value
 
     def __contains__(self, key: str) -> bool:
-        """Check if key exists and is not expired"""
+        """Check if key exists and is not expired - THREAD SAFE"""
         try:
-            _ = self[key]  # Trigger expiry check
+            _ = self[key]  # Trigger expiry check (đã có lock bên trong)
             return True
         except KeyError:
             return False
 
     def get(self, key: str, default: Any = None) -> Any:
-        """Get value with default if not found or expired"""
+        """Get value with default if not found or expired - THREAD SAFE"""
         try:
-            return self[key]
+            return self[key]  # Đã có lock bên trong
         except KeyError:
             return default
 
     def items(self):
         """
-        Iterate over non-expired items
+        Iterate over non-expired items - THREAD SAFE
         WARNING: Returns a copy to avoid modification during iteration
         """
-        self.cleanup()
-        return dict(self._data).items()
+        with self._lock:  # ✅
+            self.cleanup()
+            # Return copy để tránh modification during iteration
+            return list(self._data.items())
 
     def cleanup(self):
-        """Remove all expired items"""
+        """Remove all expired items - MUST BE CALLED WITH LOCK"""
+        # ⚠️ Method này được gọi từ items() đã có lock
+        # KHÔNG thêm lock ở đây để tránh deadlock
         current_time = time.time()
         expired_keys = [
             key for key, (_, timestamp) in self._data.items()
@@ -113,10 +121,12 @@ class TTLDict:
             del self._data[key]
 
     def __len__(self) -> int:
-        """Get count of non-expired items"""
-        self.cleanup()
-        return len(self._data)
+        """Get count of non-expired items - THREAD SAFE"""
+        with self._lock:  # ✅
+            self.cleanup()
+            return len(self._data)
 
     def clear(self):
-        """Clear all items"""
-        self._data.clear()
+        """Clear all items - THREAD SAFE"""
+        with self._lock:  # ✅
+            self._data.clear()

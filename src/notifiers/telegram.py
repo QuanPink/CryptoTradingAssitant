@@ -65,15 +65,16 @@ class TelegramNotifier:
     def send_start_notification(self, symbols: List[str], timeframes: List[str]) -> bool:
         """Send bot start notification"""
         symbols_str = ", ".join([s.replace('/USDT', '') for s in symbols])
+        indent = "\u00A0" * 3
 
         lines = [
             "🤖 *BOT STARTED*",
             "━━━━━━━━━━━━━━━",
             "",
-            f"• *Symbols:* {symbols_str}",
-            f"• *Timeframes:* {', '.join(timeframes)}",
+            f"{indent}• *Symbols:* {symbols_str}",
+            f"{indent}• *Timeframes:* {', '.join(timeframes)}",
             "",
-            f"⏰ *Started at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
+            f"{indent}⏰ *Started at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
             ""
         ]
 
@@ -81,13 +82,14 @@ class TelegramNotifier:
 
     def send_stop_notification(self, total_accumulations: int = 0) -> bool:
         """Send bot stop notification"""
+        indent = "\u00A0" * 3
         lines = [
             "🛑 *BOT STOPPED*",
             "━━━━━━━━━━━━━━━",
             "",
-            f"• *Accumulations found:* `{total_accumulations}`",
+            f"{indent}• *Accumulations found:* `{total_accumulations}`",
             "",
-            f"⏰ *Stopped at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
+            f"{indent}⏰ *Stopped at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
             ""
         ]
 
@@ -101,20 +103,21 @@ class TelegramNotifier:
         )
         range_pct = zone.strength_details.get('range_size_pct', 0)
 
+        indent = "\u00A0" * 2
         lines = [
-            "🚀 *ACCUMULATION DETECTED*",
+            f"{indent}🚀 *ACCUMULATION DETECTED*",
             "━━━━━━━━━━━━━━━",
             "",
-            f"🪙 *{zone.symbol}*  |  ⏱️ *{zone.timeframe}*  |  🎯 {zone.strength_score:.1f}",
+            f"{indent}🪙 *{zone.symbol}*  |  ⏱️ *{zone.timeframe}*  |  🎯 {zone.strength_score:.1f}",
             "",
-            f"💰 *Price:* `{current_price:.2f}`",
-            f"📈 *Resistance:* `{zone.resistance:.2f}`",
-            f"📉 *Support:* `{zone.support:.2f}`",
+            f"{indent}💰 *Price:* `{current_price:.2f}`",
+            f"{indent}📈 *Resistance:* `{zone.resistance:.2f}`",
+            f"{indent}📉 *Support:* `{zone.support:.2f}`",
             "",
-            f"↔️ *Range:* `{range_pct:.2f}%`",
-            f"⏳ *Accumulation Duration:* `{duration_hours:.1f}h`",
+            f"{indent}↔️ *Range:* `{range_pct:.2f}%`",
+            f"{indent}⏳ *Accumulation Duration:* `{duration_hours:.1f}h`",
             "",
-            f"🏢 *Exchange:* {exchange}",
+            f"{indent}🏢 *Exchange:* {exchange}",
             "",
         ]
 
@@ -125,20 +128,21 @@ class TelegramNotifier:
         direction_icon = "💥" if signal.direction == 'UP' else "💣"
         break_pct = signal.break_pct * 100
 
+        indent = "\u00A0" * 2
         lines = [
-            f"{direction_icon} *BREAKOUT {signal.direction.value}*",
+            f"{indent}{direction_icon} *BREAKOUT {signal.direction.value}*",
             "━━━━━━━━━━━━━━━",
             "",
-            f"🪙 *{signal.zone.symbol}*  |  ⏱️ *{signal.zone.timeframe}*  |  🎯 {signal.strength_score:.1f}",
+            f"{indent}🪙 *{signal.zone.symbol}*  |  ⏱️ *{signal.zone.timeframe}*  |  🎯 {signal.strength_score:.1f}",
             "",
-            f"💰 *Price:* `{signal.current_price:.6f}`",
-            f"📏 *Breakout:* `{break_pct:.2f}%` ({signal.breakout_type.value})",
-            f"🔊 *Volume Ratio:* `{signal.volume_ratio:.2f}x`",
+            f"{indent}💰 *Price:* `{signal.current_price:.6f}`",
+            f"{indent}📏 *Breakout:* `{break_pct:.2f}%` ({signal.breakout_type.value})",
+            f"{indent}🔊 *Volume Ratio:* `{signal.volume_ratio:.2f}x`",
             "",
-            f"📈 *Resistance:* `{signal.zone.resistance:.6f}`",
-            f"📉 *Support:* `{signal.zone.support:.6f}`",
+            f"{indent}📈 *Resistance:* `{signal.zone.resistance:.6f}`",
+            f"{indent}📉 *Support:* `{signal.zone.support:.6f}`",
             "",
-            f"🏢 *Exchange:* {exchange}",
+            f"{indent}🏢 *Exchange:* {exchange}",
             "",
         ]
 
