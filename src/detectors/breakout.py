@@ -11,18 +11,14 @@ logger = get_logger(__name__)
 
 
 class BreakoutService:
-    """
-    Monitors accumulation zones for breakouts
-    """
+    """Monitors accumulation zones for breakouts"""
 
     def __init__(self):
         self.thresholds = BREAKOUT_THRESHOLDS
 
     @staticmethod
     def _calculate_overlap(support1: float, resistance1: float, support2: float, resistance2: float) -> float:
-        """
-        Calculate overlap percentage between two zones
-        """
+        """Calculate overlap percentage between two zones"""
         overlap_low = max(support1, support2)
         overlap_high = min(resistance1, resistance2)
 
@@ -45,9 +41,7 @@ class BreakoutService:
 
     def check_breakouts(self, zones: Dict[str, AccumulationZone], symbol: str, timeframe: str, current_price: float,
                         current_volume: float, volume_ma: float, df: pd.DataFrame) -> Optional[BreakoutSignal]:
-        """
-        Check all monitored zones for breakouts
-        """
+        """Check all monitored zones for breakouts"""
         key = f"{symbol}_{timeframe}"
         if key not in zones:
             return None
@@ -62,9 +56,7 @@ class BreakoutService:
 
     def _evaluate_breakout_pure(self, zone: AccumulationZone, current_price: float, current_volume: float,
                                 volume_ma: float, df: pd.DataFrame, timeframe: str) -> Optional[BreakoutSignal]:
-        """
-        Pure function - no side effects
-        """
+        """Pure function - no side effects"""
         support = zone.support
         resistance = zone.resistance
 
@@ -115,9 +107,7 @@ class BreakoutService:
 
     @staticmethod
     def _classify_breakout(break_pct: float, config: Dict) -> BreakoutType:
-        """
-        Classify breakout by percentage distance
-        """
+        """Classify breakout by percentage distance"""
         if break_pct >= config['strong_break']:
             return BreakoutType.STRONG
         elif break_pct >= config['confirmed_break']:
@@ -128,9 +118,7 @@ class BreakoutService:
 
     def _calculate_strength(self, break_pct: float, current_volume: float, volume_ma: float, df: pd.DataFrame,
                             direction: BreakoutDirection, config: Dict) -> float:
-        """
-        Calculate breakout strength score (0-100)
-        """
+        """Calculate breakout strength score (0-100)"""
         score = 0.0
 
         # 1. Distance score (40 points)
@@ -157,9 +145,7 @@ class BreakoutService:
 
     @staticmethod
     def _evaluate_candle_quality(df: pd.DataFrame, direction: BreakoutDirection) -> float:
-        """
-        Evaluate quality of breakout candle
-        """
+        """Evaluate quality of breakout candle"""
         if len(df) < 2:
             return 0
 
@@ -180,9 +166,7 @@ class BreakoutService:
 
     @staticmethod
     def _score_body_size(body_size: float, total_range: float) -> float:
-        """
-        Score based on body to range ratio (0-15 points)
-        """
+        """Score based on body to range ratio (0-15 points)"""
         body_ratio = body_size / total_range
 
         if body_ratio >= 0.7:
@@ -195,9 +179,7 @@ class BreakoutService:
 
     @staticmethod
     def _score_close_position(candle, total_range: float, direction: BreakoutDirection) -> float:
-        """
-        Score based on close position (0-15 points)
-        """
+        """Score based on close position (0-15 points)"""
         if direction == BreakoutDirection.UP:
             close_position = (candle['close'] - candle['low']) / total_range
         else:  # DOWN

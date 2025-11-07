@@ -12,9 +12,9 @@ class BreakoutDirection(Enum):
 
 class BreakoutType(Enum):
     """Type/strength of breakout"""
-    SOFT = "SOFT_BREAK"
-    CONFIRMED = "CONFIRMED_BREAK"
-    STRONG = "STRONG_BREAK"
+    SOFT = "SOFT"
+    CONFIRMED = "CONFIRMED"
+    STRONG = "STRONG"
 
 
 class ZoneStatus(Enum):
@@ -23,13 +23,6 @@ class ZoneStatus(Enum):
     BREAKOUT = "BREAKOUT"  # Broken but still monitoring (false break)
     COMPLETED = "COMPLETED"  # Strong break, stop monitoring
     FAILED = "FAILED"
-
-class StrengthLevel(Enum):
-    """Accumulation strength classification"""
-    WEAK = "WEAK"
-    AVERAGE = "AVERAGE"
-    STRONG = "STRONG"
-    VERY_STRONG = "VERY STRONG"
 
 
 @dataclass(frozen=True)
@@ -58,17 +51,6 @@ class AccumulationZone:
     def mid_price(self) -> float:
         """Middle price of accumulation zone"""
         return (self.support + self.resistance) / 2
-
-    @property
-    def strength_level(self) -> StrengthLevel:
-        """Get strength level from score"""
-        if self.strength_score >= 80:
-            return StrengthLevel.VERY_STRONG
-        elif self.strength_score >= 60:
-            return StrengthLevel.STRONG
-        elif self.strength_score >= 40:
-            return StrengthLevel.AVERAGE
-        return StrengthLevel.WEAK
 
 
 @dataclass(frozen=True)

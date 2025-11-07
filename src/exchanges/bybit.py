@@ -10,9 +10,7 @@ logger = get_logger(__name__)
 
 
 class BybitExchange(ExchangeInterface):
-    """
-    Bybit Futures (USDT perpetual) adapter
-    """
+    """Bybit Futures (USDT perpetual) adapter"""
 
     def __init__(self):
         """Initialize Bybit client with futures market"""
@@ -22,15 +20,11 @@ class BybitExchange(ExchangeInterface):
         logger.info(f"✅ Initialized {self.name} exchange (futures)")
 
     def format_symbol(self, symbol: str) -> str:
-        """
-        Format symbol for Bybit API
-        """
+        """Format symbol for Bybit API"""
         return symbol + ':USDT'
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> Optional[pd.DataFrame]:
-        """
-        Fetch OHLCV data from Bybit Futures
-        """
+        """Fetch OHLCV data from Bybit Futures"""
         try:
             formatted_symbol = self.format_symbol(symbol)
 

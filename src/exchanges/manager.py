@@ -21,9 +21,7 @@ class ExchangeManager:
     """
 
     def __init__(self, priority: List[str]):
-        """
-        Initialize exchange manager
-        """
+        """Initialize exchange manager"""
         self.exchanges: Dict[str, ExchangeInterface] = {}
         self.priority = priority
         self.cache = MemoryCache()
@@ -44,9 +42,7 @@ class ExchangeManager:
                 logger.error(f"Failed to initialize {name}: {e}")
 
     def detect_exchange(self, symbol: str) -> Optional[str]:
-        """
-        Auto-detect which exchange supports a symbol (with caching)
-        """
+        """Auto-detect which exchange supports a symbol (with caching)"""
         # Check cache first
         cached = self.cache.get('symbol_exchange', symbol)
         if cached:
@@ -83,9 +79,7 @@ class ExchangeManager:
         return None
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> Optional[pd.DataFrame]:
-        """
-        Fetch OHLCV data with auto-detection
-        """
+        """Fetch OHLCV data with auto-detection"""
         # Auto-detect exchange
         exchange_name = self.detect_exchange(symbol)
         if not exchange_name:
@@ -101,9 +95,7 @@ class ExchangeManager:
         return exchange.fetch_ohlcv(symbol, timeframe, limit)
 
     def get_exchange_name(self, symbol: str) -> Optional[str]:
-        """
-        Get exchange name for a symbol
-        """
+        """Get exchange name for a symbol"""
         return self.detect_exchange(symbol)
 
     def clear_cache(self):
