@@ -1,4 +1,4 @@
-from .accumulation import AccumulationService
-from .breakout import BreakoutService
+from .accumulation import AccumulationService, EnhancedAccumulationService
+from .trend import FastTrendAnalyzer
 
-__all__ = ['AccumulationService', 'BreakoutService']
+__all__ = ['AccumulationService', 'FastTrendAnalyzer', 'EnhancedAccumulationService']

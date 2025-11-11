@@ -1,5 +1,5 @@
 import os
-from typing import List, Dict
+from typing import Dict, Any
 
 from dotenv import load_dotenv
 
@@ -9,138 +9,52 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN: str = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID: str = os.getenv('TELEGRAM_CHAT_ID', '')
 
-# List of symbols to analyze
-SYMBOLS: List[str] = [
-    'BTC/USDT',
-    'ETH/USDT',
-    'BNB/USDT',
-    'SOL/USDT',
-    'HYPE/USDT'
-]
-
 # Timeframes to analyze
-TIMEFRAMES = ['5m', '15m', '30m', '1h']
+TIMEFRAMES = ['5m']
 
 # Priority order for exchange auto-detection
 EXCHANGE_PRIORITY = ['binance', 'bybit']
 
 CACHE_TTL_SYMBOL_DETECTION = 3600  # 1 hour
-CACHE_TTL_NOTIFIED_ACCUMULATION = 7200  # 2 hours
-CACHE_TTL_ACCUMULATION_ZONES = 86400  # 24 hours
 
-MONITORING_INTERVAL = 60
-MAX_ZONES_PER_SYMBOL = 25
+SYMBOLS_CONFIG: Dict[str, Dict[str, float]] = {
+    'BTC/USDT': {'range_5m': 0.18, 'volume_min': 1000000},
+    'ETH/USDT': {'range_5m': 0.22, 'volume_min': 500000},
+    'BNB/USDT': {'range_5m': 0.25, 'volume_min': 200000},
+    'SOL/USDT': {'range_5m': 0.25, 'volume_min': 300000},
+    'HYPE/USDT': {'range_5m': 0.4, 'volume_min': 500000},
+}
 
-# Accumulation detection thresholds
-ACCUMULATION_THRESHOLDS: Dict[str, Dict] = {
+ACCUMULATION_THRESHOLDS: Dict[str, Dict[str, Any]] = {
     '5m': {
-        'N_range': 6,
-        'candles_in_range_ratio': 0.80,  # 80% nến trong range
-        'body_exceed_tolerance': 0.03,
-        'wick_tolerance_pct': 0.30,
-        'zone_buffer_pct': 0.0,
+        'N_range': 10,
+        'candles_in_range_ratio': 0.85,
+        'body_exceed_tolerance': 0.015,
+        'wick_tolerance_pct': 0.25,
+        'zone_buffer_pct': 0.002,
         'N_volume_lookback': 12,
-        'volume_ratio_threshold': 0.85,
+        'volume_ratio_threshold': 0.65,
         'trend_lookback': 20,
         'ma_period': 20,
-    },
-    '15m': {
-        'N_range': 6,
-        'candles_in_range_ratio': 0.80,  # 80% nến trong range
-        'body_exceed_tolerance': 0.04,
-        'wick_tolerance_pct': 0.25,
-        'zone_buffer_pct': 0.0,
-        'N_volume_lookback': 10,
-        'volume_ratio_threshold': 0.8,
-        'trend_lookback': 15,
-        'ma_period': 20,
-    },
-    '30m': {
-        'N_range': 5,
-        'candles_in_range_ratio': 0.80,  # 80% nến trong range
-        'body_exceed_tolerance': 0.03,
-        'wick_tolerance_pct': 0.2,
-        'zone_buffer_pct': 0.0,
-        'N_volume_lookback': 8,
-        'volume_ratio_threshold': 0.75,
-        'trend_lookback': 12,
-        'ma_period': 20,
-    },
-    '1h': {
-        'N_range': 4,
-        'candles_in_range_ratio': 0.80,  # 80% nến trong range
-        'body_exceed_tolerance': 0.02,
-        'wick_tolerance_pct': 0.15,
-        'zone_buffer_pct': 0.0,
-        'N_volume_lookback': 8,
-        'volume_ratio_threshold': 0.7,
-        'trend_lookback': 10,
-        'ma_period': 20,
+        'min_score': 65,
     }
 }
 
-# Range thresholds
-SYMBOL_RANGE_SETTINGS: Dict[str, Dict[str, float]] = {
-    'BTC/USDT': {
-        '5m': 0.3,
-        '15m': 0.55,
-        '30m': 0.7,
-        '1h': 1.2,
-    },
-    'ETH/USDT': {
-        '5m': 0.35,
-        '15m': 0.8,
-        '30m': 1.5,
-        '1h': 2.0,
-    },
-    'BNB/USDT': {
-        '5m': 0.4,
-        '15m': 0.8,
-        '30m': 1.0,
-        '1h': 1.5,
-    },
-    'SOL/USDT': {
-        '5m': 0.4,
-        '15m': 0.65,
-        '30m': 1.1,
-        '1h': 1.5,
-    },
-    'HYPE/USDT': {
-        '5m': 0.8,
-        '15m': 1.5,
-        '30m': 2.0,
-        '1h':2.8,
-    },
+FAST_INDICATOR_CONFIG = {
+    'ema_fast': 9,
+    'ema_medium': 21,
+    'ema_slow': 55,
+    'rsi_period': 7,
+    'macd_fast': 6,
+    'macd_slow': 13,
+    'macd_signal': 5,
+    'atr_period': 14,
 }
 
-# Breakout detection thresholds
-BREAKOUT_THRESHOLDS: Dict[str, Dict] = {
-    '5m': {
-        'soft_break': 0.0008,  # 0.08%
-        'confirmed_break': 0.003,  # 0.3%
-        'strong_break': 0.005,  # 0.5%
-        'volume_spike_threshold': 1.5,
-        'cooldown_period': 30,  # candles
-    },
-    '15m': {
-        'soft_break': 0.0008,
-        'confirmed_break': 0.0025,
-        'strong_break': 0.004,
-        'volume_spike_threshold': 1.8,
-        'cooldown_period': 20,
-    },
-    '30m': {
-        'soft_break': 0.001,
-        'confirmed_break': 0.002,
-        'strong_break': 0.003,
-        'volume_spike_threshold': 2.0,
-        'cooldown_period': 15,
-    },
-    '1h': {
-        'soft_break': 0.001,
-        'confirmed_break': 0.0015,
-        'strong_break': 0.0025,
-        'volume_spike_threshold': 2.2,
-        'cooldown_period': 10,
-    }
+TRADING_CONFIG = {
+    'min_confidence': 65,
+    'max_processing_time': 2,
+    'aggressive_entries': True,
+    'tight_stops': True,
+    'risk_per_trade': 0.02,
 }

@@ -1,8 +1,6 @@
-from typing import Dict
-
+from typing import Dict, Tuple
 import numpy as np
 import pandas as pd
-
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -10,11 +8,11 @@ logger = get_logger(__name__)
 
 class TechnicalIndicator:
     """
-        Technical analysis indicators
-        - ATR (Average True Range) for volatility
-        - EMA (Exponential Moving Average) for trends
-        - Trend detection algorithm
-        """
+    Technical analysis indicators
+    - ATR (Average True Range) for volatility
+    - EMA (Exponential Moving Average) for trends
+    - Trend detection algorithm
+    """
 
     @staticmethod
     def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
@@ -115,3 +113,39 @@ class TechnicalIndicator:
                 'trend_score': 0,
                 'ema_slope': 0
             }
+
+    @staticmethod
+    def calculate_rsi(prices: pd.Series, period: int = 14) -> pd.Series:
+        """Calculate RSI indicator"""
+        delta = prices.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi
+
+    @staticmethod
+    def calculate_vwap(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series) -> pd.Series:
+        """Calculate Volume Weighted Average Price"""
+        typical_price = (high + low + close) / 3
+        vwap = (typical_price * volume).cumsum() / volume.cumsum()
+        return vwap
+
+    @staticmethod
+    def calculate_macd_fast(prices: pd.Series, fast: int = 6, slow: int = 13, signal: int = 5) -> Tuple[pd.Series, pd.Series, pd.Series]:
+        """MACD với parameters nhanh cho 5p"""
+        ema_fast = prices.ewm(span=fast).mean()
+        ema_slow = prices.ewm(span=slow).mean()
+        macd = ema_fast - ema_slow
+        macd_signal = macd.ewm(span=signal).mean()
+        macd_histogram = macd - macd_signal
+        return macd, macd_signal, macd_histogram
+
+    def vwap(self, df: pd.DataFrame) -> pd.Series:
+        return self.calculate_vwap(df['high'], df['low'], df['close'], df['volume'])
+
+    def atr(self, df: pd.DataFrame, period: int = 14) -> pd.Series:
+        return self.calculate_atr(df, period)
+
+    def macd_fast(self, prices: pd.Series) -> Tuple[pd.Series, pd.Series, pd.Series]:
+        return self.calculate_macd_fast(prices)

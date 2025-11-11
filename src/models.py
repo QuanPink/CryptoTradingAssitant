@@ -1,7 +1,7 @@
 import time
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, Optional
+from typing import Dict, Optional, Any, List
 
 
 class BreakoutDirection(Enum):
@@ -19,9 +19,9 @@ class BreakoutType(Enum):
 
 class ZoneStatus(Enum):
     """Status of monitored accumulation zone"""
-    ACTIVE = "ACTIVE"  # Watching for breakout
-    BREAKOUT = "BREAKOUT"  # Broken but still monitoring (false break)
-    COMPLETED = "COMPLETED"  # Strong break, stop monitoring
+    ACTIVE = "ACTIVE"
+    BREAKOUT = "BREAKOUT"
+    COMPLETED = "COMPLETED"
     FAILED = "FAILED"
 
 
@@ -80,9 +80,33 @@ class BreakoutSignal:
         return self.breakout_type == BreakoutType.STRONG
 
 
-# ═══════════════════════════════════════════════════════════
-# MUTABLE MODELS (for internal state management)
-# ═══════════════════════════════════════════════════════════
+@dataclass
+class TradingSignal:
+    signal: str  # LONG, SHORT, NO_TRADE
+    bias: str  # BULLISH, BEARISH, NEUTRAL
+    confidence: float
+    symbol: str
+    timeframe: str
+    entry_zone: List[float]
+    entry_type: str
+    stop_loss: float
+    take_profit: List[float]
+    risk_reward_ratio: float
+    urgency: str
+    accumulation_score: float
+    trend_score: float
+    volume_score: float
+    filters_passed: List[str]
+    processing_time: float
+    timestamp: float = None
+    details: Dict[str, Any] = None
+
+    def __post_init__(self):
+        if self.timestamp is None:
+            self.timestamp = time.time()
+        if self.details is None:
+            self.details = {}
+
 
 @dataclass
 class MonitoredZone:

@@ -118,7 +118,12 @@ class TelegramNotifier:
             f"{indent}⏳ *Accumulation Duration:* `{duration_hours:.1f}h`",
             "",
             f"{indent}🏢 *Exchange:* {exchange}",
-            ""
+            "",
+            f"{indent}📊 *Quality Grade:* `{zone.strength_details.get('grade', 'N/A')}`",
+            f"{indent}🎯 *Confidence:* `{zone.strength_details.get('confidence', 'N/A')}`",
+            "",
+            f"{indent}🏢 *Exchange:* {exchange}",
+            "",
         ]
 
         return self.send_message("\n".join(lines))
