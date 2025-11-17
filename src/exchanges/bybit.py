@@ -1,4 +1,3 @@
-import time
 from typing import Optional
 
 import ccxt
@@ -11,52 +10,67 @@ logger = get_logger(__name__)
 
 
 class BybitExchange(ExchangeInterface):
-    """Bybit Futures (USDT perpetual) adapter"""
 
     def __init__(self):
-        """Initialize Bybit client with futures market"""
-        self.client = ccxt.bybit()
-        self.client.options['defaultType'] = 'future'
-        self.name = 'bybit'
-        logger.info(f"✅ Initialized {self.name} exchange (futures)")
+        self.client = ccxt.bybit({
+            "enableRateLimit": True,
+            "options": {
+                "defaultType": "future",
+            }
+        })
 
     def format_symbol(self, symbol: str) -> str:
-        """Format symbol for Bybit API"""
-        return symbol + ':USDT'
+        return symbol.replace(" ", "").upper()
 
-    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> Optional[pd.DataFrame]:
-        """Fetch OHLCV data from Bybit Futures"""
+    @staticmethod
+    def _convert_timeframe(timeframe: str) -> str:
+        """
+        Convert CCXT timeframe to Bybit format
+        CCXT: '5m', '30m', '1h'
+        Bybit: '5', '30', '60' (minutes as integer)
+        """
+        mapping = {
+            '1m': '1',
+            '3m': '3',
+            '5m': '5',
+            '15m': '15',
+            '30m': '30',
+            '1h': '60',
+            '2h': '120',
+            '4h': '240',
+            '1d': 'D',
+            '1w': 'W',
+            '1M': 'M'
+        }
+        return mapping.get(timeframe, timeframe)
+
+    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int) -> Optional[pd.DataFrame]:
         try:
-            formatted_symbol = self.format_symbol(symbol)
+            formatted = self.format_symbol(symbol)
+            bybit_timeframe = self._convert_timeframe(timeframe)
 
-            # Fetch from API
-            ohlcv = self.client.fetch_ohlcv(formatted_symbol, timeframe, limit=limit)
+            ohlcv = self.client.fetch_ohlcv(
+                formatted,
+                timeframe=bybit_timeframe,
+                limit=limit,
+                params={"category": "linear"}
+            )
 
-            if not ohlcv:
-                logger.warning(f"No data returned for {symbol}")
-                return None
-
-            # Convert to DataFrame
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df = pd.DataFrame(
+                ohlcv,
+                columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+            )
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             df.set_index('timestamp', inplace=True)
 
+            df.attrs['symbol'] = symbol
+            df.attrs['timeframe'] = timeframe
+
             return df
 
-        except ccxt.BadSymbol as e:
-            logger.error(f"Invalid symbol {symbol} on Bybit: {e}")
-            return None
-        except ccxt.RateLimitExceeded as e:  # ✅ Handle rate limit
-            logger.warning(f"⚠️ Rate limit exceeded for {symbol}: {e}")
-            time.sleep(3)
-            return None
-        except ccxt.NetworkError as e:
-            logger.error(f"Network error fetching {symbol}: {e}")
-            return None
         except Exception as e:
-            logger.error(f"Error fetching {symbol} from Bybit: {e}")
+            logger.error(f"Bybit fetch error {symbol}: {e}")
             return None
 
     def get_name(self) -> str:
-        """Get exchange name"""
-        return self.name
+        return "bybit"

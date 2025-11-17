@@ -5,7 +5,7 @@ from typing import List
 
 import requests
 
-from src.models import AccumulationZone, BreakoutSignal
+from src.models import AccumulationZone
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -69,12 +69,12 @@ class TelegramNotifier:
 
         lines = [
             "🤖 *BOT STARTED*",
-            "━━━━━━━━━━━━━━━",
+            f"{indent}━━━━━━━━━━━━━━━",
             "",
             f"{indent}• *Symbols:* {symbols_str}",
             f"{indent}• *Timeframes:* {', '.join(timeframes)}",
             "",
-            f"{indent}⏰ *Started at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
+            f"⏰ *Started at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
             ""
         ]
 
@@ -85,77 +85,76 @@ class TelegramNotifier:
         indent = "\u00A0" * 3
         lines = [
             "🛑 *BOT STOPPED*",
-            "━━━━━━━━━━━━━━━",
+            f"{indent}━━━━━━━━━━━━━━━",
             "",
             f"{indent}• *Accumulations found:* `{total_accumulations}`",
             "",
-            f"{indent}⏰ *Stopped at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
+            f"⏰ *Stopped at:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
             ""
         ]
 
         return self.send_message("\n".join(lines))
 
-    def send_accumulation_alert(self, zone: AccumulationZone, exchange: str, current_price: float) -> bool:
-        """Send formatted accumulation alert"""
-        duration_hours = self._calculate_duration_hours(
-            zone.timeframe,
-            zone.strength_details.get('duration_score', 0)
-        )
-        range_pct = zone.strength_details.get('range_size_pct', 0)
+    def send_signal_alert(self, symbol: str, signal: dict, zone: AccumulationZone, exchange: str, timeframe: str) -> bool:
+        """Send accumulation + trading signal in one alert"""
+
+        signal_type = signal['signal']
+        emoji = "🟢" if signal_type == 'LONG' else "🔴"
+
+        entry = signal['entry']
+        tp = signal['take_profit_1']  # ✅ Dùng take_profit_1
+        sl = signal['stop_loss']
 
         indent = "\u00A0" * 2
         lines = [
-            "🚀 *ACCUMULATION DETECTED*",
+            f"{emoji} *ACCUMULATION SIGNAL*",
             f"{indent}━━━━━━━━━━━━━━━",
             "",
-            f"{indent}🪙 *{zone.symbol}*  |  ⏱️ *{zone.timeframe}*  |  🎯 {zone.strength_score:.1f}",
+            f"{indent}🪙 *{symbol}*  |  ⏱️ *{timeframe}*",
             "",
-            f"{indent}💰 *Price:* `{current_price:.2f}`",
-            f"{indent}📈 *Resistance:* `{zone.resistance:.2f}`",
-            f"{indent}📉 *Support:* `{zone.support:.2f}`",
+            f"{indent}💰 *Signal:* `{signal_type}`",
+            f"{indent}🎯 *Confidence:* `{signal['confidence']:.1f}%`",
             "",
-            f"{indent}↔️ *Range:* `{range_pct:.2f}%`",
-            f"{indent}⏳ *Accumulation Duration:* `{duration_hours:.1f}h`",
-            "",
-            f"{indent}🏢 *Exchange:* {exchange}",
-            "",
+            f"{indent}📍 *Entry:* `{signal['entry']:.6f}`",
+            f"{indent}🎯 *Take Profit:* `{tp:.6f}` ({self._calculate_pct(entry, tp):.2f}%)",
+            f"{indent}🛑 *Stop Loss:* `{sl:.6f}` ({self._calculate_pct(entry, sl):.2f}%)",
         ]
 
-        return self.send_message("\n".join(lines))
+        # Risk:Reward ratio
+        risk = abs(entry - sl)
+        reward = abs(tp - entry)
+        rr_ratio = reward / risk if risk > 0 else 0
+        lines.append(f"{indent}💎 *Risk:Reward:* `1:{rr_ratio:.2f}`")
 
-    def send_breakout_alert(self, signal: BreakoutSignal, exchange: str) -> bool:
-        """Send breakout alert"""
-        direction_icon = "💥" if signal.direction == 'UP' else "💣"
-        break_pct = signal.break_pct * 100
+        # Accumulation Zone
+        lines.extend([
+            "",
+            f"{indent}*Accumulation Zone:*",
+            f"{indent}• Support: `{zone.support:.6f}`",
+            f"{indent}• Resistance: `{zone.resistance:.6f}`",
+            f"{indent}• Score: `{zone.strength_score:.1f}`",
+        ])
 
-        indent = "\u00A0" * 2
-        lines = [
-            f"{direction_icon} *BREAKOUT {signal.direction.value}*",
-            f"{indent}━━━━━━━━━━━━━━━",
-            "",
-            f"{indent}🪙 *{signal.zone.symbol}*  |  ⏱️ *{signal.zone.timeframe}*  |  🎯 {signal.strength_score:.1f}",
-            "",
-            f"{indent}💰 *Price:* `{signal.current_price:.6f}`",
-            f"{indent}📏 *Breakout:* `{break_pct:.2f}%` ({signal.breakout_type.value})",
-            f"{indent}🔊 *Volume Ratio:* `{signal.volume_ratio:.2f}x`",
-            "",
-            f"{indent}📈 *Resistance:* `{signal.zone.resistance:.6f}`",
-            f"{indent}📉 *Support:* `{signal.zone.support:.6f}`",
+        # Key signals
+        if signal.get('signals'):
+            escaped_signals = [s.replace('_', '\\_') for s in signal['signals']]
+            signals_str = ', '.join(escaped_signals)
+            lines.extend([
+                "",
+                f"{indent}*Signals:* {signals_str}",
+            ])
+
+        # Footer
+        lines.extend([
             "",
             f"{indent}🏢 *Exchange:* {exchange}",
-            "",
-        ]
+            f"{indent}⏰ *Time:* `{time.strftime('%Y-%m-%d %H:%M:%S')}`",
+            ""
+        ])
 
         return self.send_message("\n".join(lines))
 
     @staticmethod
-    def _calculate_duration_hours(timeframe: str, duration_bars: int) -> float:
-        """Calculate accumulation duration in hours"""
-        minutes_per_bar = {
-            '5m': 5,
-            '15m': 15,
-            '30m': 30,
-            '1h': 60
-        }
-        minutes = duration_bars * minutes_per_bar.get(timeframe, 5)
-        return minutes / 60.0
+    def _calculate_pct(entry: float, target: float) -> float:
+        """Calculate percentage change"""
+        return ((target - entry) / entry) * 100

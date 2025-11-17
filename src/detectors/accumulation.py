@@ -1,271 +1,95 @@
 import time
-from typing import Dict, Optional
+from typing import Optional
 
 import pandas as pd
 
-from config import ACCUMULATION_THRESHOLDS, SYMBOL_RANGE_SETTINGS
-from src.indicators import TechnicalIndicator
+from src.indicators.technical import TechnicalIndicators
 from src.models import AccumulationZone
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
-class AccumulationService:
-    def __init__(self):
-        self.thresholds = ACCUMULATION_THRESHOLDS
-        self.technical = TechnicalIndicator()
+class AccumulationStrategy:
 
-    def detect(self, df: pd.DataFrame, timeframe: str, symbol: str) -> Optional[AccumulationZone]:
-        """Detect accumulation and return zone"""
-        logger.info(f"🔍 Checking accumulation on {timeframe}...")
+    def __init__(self, symbol: str = "", timeframe: str = ""):
+        self.df = None
+        self.symbol = symbol
+        self.timeframe = timeframe
+        self.ind = TechnicalIndicators()
 
-        # Step 1: Check accumulation conditions
-        if not self._check_range(df, timeframe, symbol):
-            return None
+    def compute_accumulation_score(self) -> pd.Series:
+        self.df['atr'] = self.ind.atr(self.df)
 
-        if not self._check_volume(df, timeframe):
-            return None
+        _, _, width = self.ind.bollinger_bands(self.df)
+        self.df['bb_width'] = width
 
-        # Step 2: Calculate zone boundaries
-        zone_data = self._calculate_zone_boundaries(df, timeframe)
+        self.df['bb_squeeze'] = self.ind.bb_squeeze(self.df['bb_width']).astype(int)
+        self.df['atr_compress'] = self.ind.atr_compression(self.df['atr']).astype(int)
+        self.df['ms_flat'] = self.ind.market_structure_flat(self.df).astype(int)
+        self.df['vol_dec'] = self.ind.volume_decreasing(self.df).astype(int)
 
-        # Step 3: Analyze strength
-        strength_result = self._analyze_strength(df, timeframe, zone_data)
+        # 🆕 DEBUG: Log từng condition
+        logger.debug("Latest candle conditions:")
+        logger.debug(f"  BB Squeeze: {self.df['bb_squeeze'].iloc[-1]} (width: {self.df['bb_width'].iloc[-1]:.4f})")
+        logger.debug(f"  ATR Compress: {self.df['atr_compress'].iloc[-1]} (ATR: {self.df['atr'].iloc[-1]:.4f})")
+        logger.debug(f"  Market Flat: {self.df['ms_flat'].iloc[-1]}")
+        logger.debug(f"  Volume Dec: {self.df['vol_dec'].iloc[-1]}")
 
-        # Step 4: Create immutable zone object
-        return AccumulationZone(
-            symbol="",
-            timeframe=timeframe,
-            support=zone_data['support'],
-            resistance=zone_data['resistance'],
-            created_at=time.time(),
-            strength_score=strength_result['strength_score'],
-            strength_details=strength_result['details']
+        bb = self.df['bb_squeeze'].astype(float)
+        atr = self.df['atr_compress'].astype(float)
+        ms = self.df['ms_flat'].astype(float)
+        vol = self.df['vol_dec'].astype(float)
+
+        self.df['accum_score'] = (
+                0.35 * bb +
+                0.25 * atr +
+                0.20 * ms +
+                0.20 * vol
         )
 
-    def _check_range(self, df: pd.DataFrame, timeframe: str, symbol: str) -> bool:
-        """Check if price is in tight accumulation range"""
-        config = ACCUMULATION_THRESHOLDS[timeframe]
+        logger.debug(f"  Final Score: {self.df['accum_score'].iloc[-1]:.2f}")
 
-        if len(df) < config['N_range']:
-            return False
+        return self.df['accum_score']
 
-        recent_data = df.iloc[-(config['N_range'] + 1):-1].copy()
-        current_price = recent_data['close'].iloc[-1]
+    def detect_accumulation(self, threshold: float = 0.6) -> pd.Series:
+        score = self.compute_accumulation_score()
+        return (score >= threshold)
 
-        body_highs = recent_data[['open', 'close']].max(axis=1)
-        body_lows = recent_data[['open', 'close']].min(axis=1)
-        body_high = body_highs.max()
-        body_low = body_lows.min()
-        body_range = body_high - body_low
+    def detect(self, df: pd.DataFrame, threshold: float = 0.6) -> Optional[AccumulationZone]:
+        self.df = df.copy()
 
-        full_high = recent_data['high'].max()
-        full_low = recent_data['low'].min()
-        full_range = full_high - full_low
+        # 🆕 Check minimum data
+        if len(df) < 15:
+            logger.warning(f"⚠️ Insufficient data: {len(df)} candles (need 20+)")
+            return None
 
-        wick_size = full_range - body_range
-        wick_ratio = (wick_size / body_range) if body_range > 0 else 0
-        wick_tolerance = config.get('wick_tolerance', 0.30)
+        is_accum = self.detect_accumulation(threshold)
 
-        if wick_ratio <= wick_tolerance:  # SMALL Wicks → FULL
-            use_high = full_high
-            use_low = full_low
-            range_type = "FULL"
-        else:  # BIG WICKS → BODY (filter spikes)
-            use_high = body_high
-            use_low = body_low
-            range_type = "BODY"
+        # Early exit
+        if not is_accum.iloc[-1]:
+            logger.debug("❌ Latest candle not in accumulation")
+            return None
 
-        actual_range = use_high - use_low
-        range_pct = (actual_range / current_price) * 100
+        # Kiểm tra consistency:
+        recent_accum = is_accum.iloc[-20:].sum()
+        if recent_accum < 15:
+            logger.debug(f"❌ Insufficient accumulation density: {recent_accum}/20")
+            return None
 
-        symbol_config = SYMBOL_RANGE_SETTINGS.get(symbol, {})
-        max_range_pct = symbol_config.get(timeframe, 1)
+        logger.info(f"✅ Accumulation detected: {recent_accum}/20 candles")
 
-        if range_pct > max_range_pct:
-            logger.info(
-                f"❌ Range check {symbol} {timeframe}: "
-                f"{range_pct:.2f}% > {max_range_pct:.2f}% ({range_type})"
-            )
-            return False
+        accum_data = self.df.iloc[-20:]
 
-        min_candles_ratio = config.get('candles_in_range_ratio', 0.80)
-        candles_in = self._count_candles_in_range(recent_data, use_high, use_low, timeframe)
-        candles_ratio = candles_in / len(recent_data)
-
-        if candles_ratio < min_candles_ratio:
-            logger.info(
-                f"❌ Stability check {symbol} {timeframe}: "
-                f"{candles_in}/{len(recent_data)} ({candles_ratio:.0%}) < {min_candles_ratio:.0%}"
-            )
-            return False
-
-        logger.info(
-            f"✅ Range OK {symbol} {timeframe}: "
-            f"{range_pct:.2f}% <= {max_range_pct:.2f}%, "
-            f"candles: {candles_in}/{len(recent_data)} ({range_type})"
+        zone = AccumulationZone(
+            symbol=self.symbol,
+            timeframe=self.timeframe,
+            support=accum_data['low'].min(),
+            resistance=accum_data['high'].max(),
+            strength_score=self.df['accum_score'].iloc[-20:].mean() * 100,
+            created_at=time.time()
         )
 
-        return True
+        logger.info(f"Zone: {zone.support:.2f} - {zone.resistance:.2f}, Score: {zone.strength_score:.1f}")
 
-    @staticmethod
-    def _count_candles_in_range(df, range_high, range_low, timeframe):
-        """Count candles with body in range"""
-        config = ACCUMULATION_THRESHOLDS[timeframe]
-        body_tolerance = config.get('body_exceed_tolerance', 0.03)
-
-        count = 0
-        range_size = range_high - range_low
-
-        for _, candle in df.iterrows():
-            body_high = max(candle['open'], candle['close'])
-            body_low = min(candle['open'], candle['close'])
-
-            # Allow small breach
-            exceed_up = max(0, body_high - range_high)
-            exceed_down = max(0, range_low - body_low)
-            max_exceed = max(exceed_up, exceed_down)
-            exceed_pct = max_exceed / range_size if range_size > 0 else 0
-
-            if exceed_pct <= body_tolerance:
-                count += 1
-
-        return count
-
-    def _check_volume(self, df: pd.DataFrame, timeframe: str) -> bool:
-        """Check if volume is contracting (accumulation signature)"""
-        config = self.thresholds[timeframe]
-
-        if len(df) < config['N_volume_lookback'] + config['N_range']:
-            return False
-
-        vol_data = df.iloc[:-1]
-
-        current_volume = df['volume'].tail(config['N_range']).mean()
-        previous_volume = vol_data['volume'].tail(config['N_volume_lookback'] + config['N_range']).head(
-            config['N_volume_lookback']).mean()
-
-        if previous_volume == 0:
-            return False
-
-        volume_ratio = current_volume / previous_volume
-        is_contracted = volume_ratio < config['volume_ratio_threshold']
-
-        if is_contracted:
-            logger.info(
-                f"✅ Volume OK: {volume_ratio:.2f} "
-                f"(current: {current_volume:.0f}, previous: {previous_volume:.0f})"
-            )
-        else:
-            logger.info(
-                f"❌ Volume FAIL: ratio={volume_ratio:.2f} "
-                f"(current: {current_volume:.0f}, previous: {previous_volume:.0f}) "
-                f"[Need: <{config['volume_ratio_threshold']:.2f}]"
-            )
-
-        return is_contracted
-
-    def _calculate_zone_boundaries(self, df: pd.DataFrame, timeframe: str) -> Dict:
-        """Calculate support/resistance levels"""
-        config = self.thresholds[timeframe]
-        recent_data = df.iloc[-(config['N_range'] + 1):-1]
-
-        actual_high = recent_data['high'].max()
-        actual_low = recent_data['low'].min()
-
-        # Method 2 (Optional): Use body only (filter wicks)
-        # body_highs = recent_data[['open', 'close']].max(axis=1)
-        # body_lows = recent_data[['open', 'close']].min(axis=1)
-        # actual_high = body_highs.max()
-        # actual_low = body_lows.min()
-
-        actual_range = actual_high - actual_low
-        current_price = recent_data['close'].iloc[-1]
-
-        # Add buffer to avoid false breakouts
-        buffer_pct = config.get('zone_buffer_pct', 0.0)
-        buffer = actual_range * buffer_pct
-
-        support = actual_low - buffer
-        resistance = actual_high + buffer
-
-        return {'support': support, 'resistance': resistance,
-                'range_size_pct': ((resistance - support) / current_price) * 100}
-
-    def _analyze_strength(self, df: pd.DataFrame, timeframe: str, zone_data: Dict) -> Dict:
-        """Analyze accumulation strength (0-100 score) """
-        config = self.thresholds[timeframe]
-        score = 0
-        details = {}
-
-        # 1. Previous Trend
-        trend_data = self.technical.identify_trend(df, config['trend_lookback'], config['ma_period'])
-        trend_score = trend_data['trend_score']
-        score += trend_score
-        details['trend_score'] = trend_score
-        details['trend'] = trend_data['trend']
-        details['ema_slope'] = trend_data['ema_slope']
-
-        # 2. Range Tightness
-        range_size_pct = zone_data['range_size_pct']
-        range_score = self._calculate_range_score(range_size_pct)
-        score += range_score
-        details['range_score'] = range_score
-        details['range_size_pct'] = round(range_size_pct, 2)
-
-        # 3. Volume Contraction
-        volume_data = self._get_volume_data(df, timeframe)
-        volume_score = self._calculate_volume_score(volume_data['volume_ratio'])
-        score += volume_score
-        details['volume_score'] = volume_score
-        details['volume_ratio'] = round(volume_data['volume_ratio'], 2)
-
-        # 4. Duration
-        duration_bars = config['N_range']
-        duration_score = min(15, duration_bars * 2)
-        score += duration_score
-        details['duration_score'] = duration_score
-
-        # 5. Candle Pattern
-        candle_score = 10
-        score += candle_score
-        details['candle_score'] = candle_score
-
-        return {'strength_score': round(score, 1), 'details': details}
-
-    @staticmethod
-    def _calculate_range_score(range_size_pct: float) -> float:
-        """Score based on range tightness"""
-        if range_size_pct < 0.3:
-            return 25
-        elif range_size_pct < 0.5:
-            return 20
-        elif range_size_pct < 0.7:
-            return 10
-        return 0
-
-    @staticmethod
-    def _calculate_volume_score(volume_ratio: float) -> float:
-        """Score based on volume contraction"""
-        if volume_ratio < 0.5:
-            return 25
-        elif volume_ratio < 0.7:
-            return 20
-        elif volume_ratio < 0.85:
-            return 10
-        return 0
-
-    def _get_volume_data(self, df: pd.DataFrame, timeframe: str) -> Dict:
-        """ volume comparison data"""
-        config = self.thresholds[timeframe]
-
-        vol_data = df.iloc[:-1]
-
-        current_volume = vol_data['volume'].tail(config['N_range']).mean()
-        previous_volume = vol_data['volume'].tail(config['N_volume_lookback'] + config['N_range']).head(
-            config['N_volume_lookback']).mean()
-
-        volume_ratio = current_volume / previous_volume if previous_volume > 0 else 1
-
-        return {'current_volume': current_volume, 'previous_volume': previous_volume, 'volume_ratio': volume_ratio}
+        return zone

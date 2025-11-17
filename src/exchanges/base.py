@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Any
 
 import pandas as pd
 
@@ -10,8 +10,10 @@ class ExchangeInterface(ABC):
     Follows Open/Closed Principle - easy to add new exchanges
     """
 
+    client: Any = None
+
     @abstractmethod
-    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> Optional[pd.DataFrame]:
+    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int) -> Optional[pd.DataFrame]:
         """
         Fetch OHLCV (candlestick) data from exchange
 

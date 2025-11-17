@@ -1,4 +1,3 @@
-import time
 from typing import Optional
 
 import ccxt
@@ -11,52 +10,43 @@ logger = get_logger(__name__)
 
 
 class BinanceExchange(ExchangeInterface):
-    """Binance Futures (USDT perpetual) adapter"""
 
     def __init__(self):
-        """Initialize Binance client with futures market"""
-        self.client = ccxt.binance()
-        self.client.options['defaultType'] = 'spot'
-        self.name = 'binance'
-        logger.info(f"✅ Initialized {self.name} exchange (futures)")
+        self.client = ccxt.binance({
+            "enableRateLimit": True,
+            "options": {
+                "defaultType": "future"
+            }
+        })
 
     def format_symbol(self, symbol: str) -> str:
-        """Format symbol for Binance API"""
-        return symbol.replace('/', '')
+        return symbol.replace(" ", "").upper()
 
-    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> Optional[pd.DataFrame]:
-        """Fetch OHLCV data from Binance Futures"""
+    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int) -> Optional[pd.DataFrame]:
         try:
-            formatted_symbol = self.format_symbol(symbol)
+            formatted = self.format_symbol(symbol)
 
-            # Fetch from API
-            ohlcv = self.client.fetch_ohlcv(formatted_symbol, timeframe, limit=limit)
+            ohlcv = self.client.fetch_ohlcv(
+                formatted,
+                timeframe=timeframe,
+                limit=limit
+            )
 
-            if not ohlcv:
-                logger.warning(f"No data returned for {symbol}")
-                return None
-
-            # Convert to DataFrame
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df = pd.DataFrame(
+                ohlcv,
+                columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+            )
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             df.set_index('timestamp', inplace=True)
 
+            df.attrs['symbol'] = symbol
+            df.attrs['timeframe'] = timeframe
+
             return df
 
-        except ccxt.BadSymbol as e:
-            logger.error(f"Invalid symbol {symbol} on Binance: {e}")
-            return None
-        except ccxt.RateLimitExceeded as e:  # ✅ Handle rate limit
-            logger.warning(f"⚠️ Rate limit exceeded for {symbol}: {e}")
-            time.sleep(2)  # Chờ 2s rồi thử lại
-            return None
-        except ccxt.NetworkError as e:
-            logger.error(f"Network error fetching {symbol}: {e}")
-            return None
         except Exception as e:
-            logger.error(f"Error fetching {symbol} from Binance: {e}")
+            logger.error(f"Binance fetch error {symbol}: {e}")
             return None
 
     def get_name(self) -> str:
-        """Get exchange name"""
-        return self.name
+        return "binance"
