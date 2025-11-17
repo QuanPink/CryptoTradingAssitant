@@ -1,3 +1,3 @@
-from .technical import TechnicalIndicator
+from .technical import TechnicalIndicators
 
-__all__ = ['TechnicalIndicator']
+__all__ = ['TechnicalIndicators']
