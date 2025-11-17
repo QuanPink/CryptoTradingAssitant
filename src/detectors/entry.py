@@ -6,8 +6,8 @@ from src.models import AccumulationZone
 class EntryBuilder:
 
     @staticmethod
-    def build_trade_plan(df: pd.DataFrame, zone: AccumulationZone, bias: str,
-                         buffer_pct: float = 0.005, r_values: list = [2, 3, 4]):
+    def build_trade_plan(df: pd.DataFrame, zone: AccumulationZone, bias: str, buffer_pct: float = 0.005,
+                         r_values: list = [2, 3, 4]):
         price = df["close"].iloc[-1]
 
         if price < zone.support or price > zone.resistance:
@@ -25,11 +25,11 @@ class EntryBuilder:
         R = abs(entry - sl)
 
         return {
+            "current_price": price,
             "entry": entry,
-            "stop_loss": sl,
             **{f"take_profit_{i + 1}": entry + direction * r_values[i] * R
                for i in range(len(r_values))},
-            "current_price": price,
+            "stop_loss": sl,
             "risk_amount": R,
             "zone_range": zone.resistance - zone.support
         }

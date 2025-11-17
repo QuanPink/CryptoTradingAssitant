@@ -9,41 +9,45 @@ logger = get_logger(__name__)
 class BiasDetector:
 
     @staticmethod
+    def _inside_zone(df: pd.DataFrame, zone: AccumulationZone) -> pd.DataFrame:
+        mask = (df["high"] >= zone.support) & (df["low"] <= zone.resistance)
+        return df[mask]
+
+    @staticmethod
     def higher_lows(df: pd.DataFrame, zone: AccumulationZone) -> int:
         """Check HL inside accumulation zone"""
 
-        inside = df[(df["high"] >= zone.support) & (df["low"] <= zone.resistance)]
+        inside = BiasDetector._inside_zone(df, zone)
         if len(inside) < 5:
             return 0
 
-        # simple HL detection
-        lows = inside["low"].values
-        x = range(len(lows))
-        slope = (len(x) * sum(i * lows[i] for i in x) - sum(x) * sum(lows)) / \
-                (len(x) * sum(i ** 2 for i in x) - sum(x) ** 2)
+        lows = inside["low"].rolling(3, center=True).min().dropna()
+        if len(lows) < 3:
+            return 0
 
-        return 1 if slope > 0 else 0
+        return int(lows.iloc[-1] > lows.iloc[0])
 
     @staticmethod
     def lower_highs(df: pd.DataFrame, zone: AccumulationZone) -> int:
         """Check LH inside accumulation zone"""
-        inside = df[(df["high"] >= zone.support) & (df["low"] <= zone.resistance)]
+        inside = BiasDetector._inside_zone(df, zone)
         if len(inside) < 5:
             return 0
 
-        highs = inside["high"].values
-        lh_count = sum(highs[i] < highs[i - 1] for i in range(1, len(highs)))
+        highs = inside["high"].rolling(3, center=True).max().dropna()
+        if len(highs) < 3:
+            return 0
 
-        return 1 if lh_count >= 2 else 0
+        return int(highs.iloc[-1] < highs.iloc[0])
 
     @staticmethod
     def volume_imbalance(df: pd.DataFrame, zone: AccumulationZone) -> str:
-        inside = df[(df["high"] >= zone.support) & (df["low"] <= zone.resistance)]
+        inside = BiasDetector._inside_zone(df, zone)
         if len(inside) < 10:
             return "neutral"
 
-        up_vol = inside[inside["close"] > inside["open"]]["volume"].sum()
-        down_vol = inside[inside["close"] < inside["open"]]["volume"].sum()
+        up_vol = inside[inside.close > inside.open].volume.mean() or 0
+        down_vol = inside[inside.close < inside.open].volume.mean() or 0
 
         if up_vol > down_vol * 1.2:
             return "up"
@@ -66,12 +70,10 @@ class BiasDetector:
         wick_threshold = atr * 0.4
 
         # Check rejection at zone boundaries
-        if (lower_wick > wick_threshold and
-                last["low"] <= zone.support * 1.005):  # 0.5% buffer
+        if lower_wick > wick_threshold and abs(last["low"] - zone.support) <= zone.support * 0.005:
             return 1
 
-        if (upper_wick > wick_threshold and
-                last["high"] >= zone.resistance * 0.995):
+        if upper_wick > wick_threshold and abs(last["high"] - zone.resistance) <= zone.resistance * 0.005:
             return -1
 
         return 0

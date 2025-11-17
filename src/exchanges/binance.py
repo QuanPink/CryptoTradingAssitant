@@ -20,7 +20,7 @@ class BinanceExchange(ExchangeInterface):
         })
 
     def format_symbol(self, symbol: str) -> str:
-        return symbol.replace(" ", "")
+        return symbol.replace(" ", "").upper()
 
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int) -> Optional[pd.DataFrame]:
         try:
@@ -38,6 +38,10 @@ class BinanceExchange(ExchangeInterface):
             )
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             df.set_index('timestamp', inplace=True)
+
+            df.attrs['symbol'] = symbol
+            df.attrs['timeframe'] = timeframe
+
             return df
 
         except Exception as e:

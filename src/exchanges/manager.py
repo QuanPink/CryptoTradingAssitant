@@ -53,10 +53,10 @@ class ExchangeManager:
 
             try:
                 markets = ex.client.load_markets()
-                if symbol in markets:
+                formatted = ex.format_symbol(symbol)
+                if formatted in markets:
                     logger.info(f"✅Symbol {symbol} supported by {name}")
-
-                    self.cache.set('symbol_exchange', symbol, name)
+                    self.cache.set("symbol_exchange", symbol, name)
                     return name
 
             except Exception as e:

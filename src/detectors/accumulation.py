@@ -1,6 +1,10 @@
+import time
+from typing import Optional
+
 import pandas as pd
 
 from src.indicators.technical import TechnicalIndicators
+from src.models import AccumulationZone
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -8,9 +12,11 @@ logger = get_logger(__name__)
 
 class AccumulationStrategy:
 
-    def __init__(self, df: pd.DataFrame):
-        self.df = df
-        self.ind = TechnicalIndicators
+    def __init__(self, symbol: str = "", timeframe: str = ""):
+        self.df = None
+        self.symbol = symbol
+        self.timeframe = timeframe
+        self.ind = TechnicalIndicators()
 
     def compute_accumulation_score(self) -> pd.Series:
         self.df['atr'] = self.ind.atr(self.df)
@@ -50,11 +56,11 @@ class AccumulationStrategy:
         score = self.compute_accumulation_score()
         return (score >= threshold)
 
-    def detect(self, df: pd.DataFrame, threshold: float = 0.6):
-        self.df = df
+    def detect(self, df: pd.DataFrame, threshold: float = 0.6) -> Optional[AccumulationZone]:
+        self.df = df.copy()
 
         # 🆕 Check minimum data
-        if len(df) < 20:
+        if len(df) < 15:
             logger.warning(f"⚠️ Insufficient data: {len(df)} candles (need 20+)")
             return None
 
@@ -75,12 +81,13 @@ class AccumulationStrategy:
 
         accum_data = self.df.iloc[-20:]
 
-        from src.models import AccumulationZone
-
         zone = AccumulationZone(
+            symbol=self.symbol,
+            timeframe=self.timeframe,
             support=accum_data['low'].min(),
             resistance=accum_data['high'].max(),
-            strength_score=self.df['accum_score'].iloc[-20:].mean() * 100
+            strength_score=self.df['accum_score'].iloc[-20:].mean() * 100,
+            created_at=time.time()
         )
 
         logger.info(f"Zone: {zone.support:.2f} - {zone.resistance:.2f}, Score: {zone.strength_score:.1f}")

@@ -14,11 +14,13 @@ class MemoryCache:
     def __init__(self, maxsize: int = 100):
         self._caches: Dict[str, TTLCache] = {}
         self.maxsize = maxsize
+        self._default_ttls: Dict[str, int] = {}
 
     def get_cache(self, name: str, ttl: int) -> TTLCache:
         """Get or create a named cache with specific TTL"""
         if name not in self._caches:
             self._caches[name] = TTLCache(maxsize=self.maxsize, ttl=ttl)
+            self._default_ttls[name] = ttl
         return self._caches[name]
 
     def get(self, cache_name: str, key: str) -> Optional[Any]:
@@ -28,9 +30,10 @@ class MemoryCache:
             return None
         return cache.get(key)
 
-    def set(self, cache_name: str, key: str, value: Any, ttl: int = 300):
+    def set(self, cache_name: str, key: str, value: Any, ttl: int = 86400):
         """Set value in cache with specific TTL"""
-        cache = self.get_cache(cache_name, ttl)
+        cache_ttl = ttl if ttl else self._default_ttls.get(cache_name, 86400)
+        cache = self.get_cache(cache_name, cache_ttl)
         cache[key] = value
 
     def delete(self, cache_name: str, key: str):

@@ -10,18 +10,6 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# try:
-#     from debug_monitor import show_system_stats
-#
-#     DEBUG_MODE = True
-# except ImportError:
-#     DEBUG_MODE = False
-#
-#
-#     def show_system_stats():
-#         # as
-#         pass
-
 
 class TradingBot:
     def __init__(self):
@@ -41,18 +29,10 @@ class TradingBot:
 
         try:
             while True:
-                # if DEBUG_MODE:
-                #     show_system_stats()
-
                 total_signals = await self._process_symbols(SYMBOLS, total_signals)
                 await asyncio.sleep(30)
         except KeyboardInterrupt:
             logger.info("🛑 Received Ctrl+C, stopping bot...")
-
-            # if DEBUG_MODE:
-            #     print("\n📊 FINAL STATS:")
-            #     # show_system_stats()
-            #     print(f"🎯 Total Signals: {total_signals}")
         finally:
             self.notifier.send_stop_notification(total_signals)
             logger.info("👋 Bot stopped gracefully")
@@ -142,7 +122,7 @@ class TradingBot:
         signal_key = f"{symbol}_{timeframe}"
 
         # Send notification
-        self._send_signal_notification(symbol, result, total_signals + 1)
+        self._send_signal_notification(symbol, result, total_signals + 1, timeframe)
 
         # Track signal
         self.sent_signals[signal_key] = {
@@ -157,7 +137,7 @@ class TradingBot:
 
         return total_signals + 1
 
-    def _send_signal_notification(self, symbol: str, result: dict, signal_number: int):
+    def _send_signal_notification(self, symbol: str, result: dict, signal_number: int, timeframe: str) -> None:
         """Send signal notification to Telegram"""
         signal = result['signal']
         accumulation_zone = result['accumulation_zone']
@@ -168,6 +148,7 @@ class TradingBot:
             signal=signal,
             zone=accumulation_zone,
             exchange=exchange,
+            timeframe=timeframe
         )
 
         logger.info(

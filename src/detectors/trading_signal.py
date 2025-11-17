@@ -45,7 +45,7 @@ class TradingSignalBuilder:
         logger.info(f"🎯 Signal: {bias} | Entry: {trade['entry']:.2f} | Conf: {confidence:.1f}")
 
         return {
-            "symbol": df.attrs.get("symbol", "UNKNOWN"),  # 🆕 Add symbol
+            "symbol": df.attrs.get("symbol", "UNKNOWN"),
             "timeframe": df.attrs.get("timeframe", "UNKNOWN"),
             "accumulation_zone": zone,
             "signal": {

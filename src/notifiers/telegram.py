@@ -95,30 +95,34 @@ class TelegramNotifier:
 
         return self.send_message("\n".join(lines))
 
-    def send_signal_alert(self, symbol: str, signal: dict, zone: AccumulationZone, exchange: str) -> bool:
+    def send_signal_alert(self, symbol: str, signal: dict, zone: AccumulationZone, exchange: str, timeframe: str) -> bool:
         """Send accumulation + trading signal in one alert"""
 
         signal_type = signal['signal']
         emoji = "🟢" if signal_type == 'LONG' else "🔴"
+
+        entry = signal['entry']
+        tp = signal['take_profit_1']  # ✅ Dùng take_profit_1
+        sl = signal['stop_loss']
 
         indent = "\u00A0" * 2
         lines = [
             f"{emoji} *ACCUMULATION SIGNAL*",
             f"{indent}━━━━━━━━━━━━━━━",
             "",
-            f"{indent}🪙 *{symbol}*  |  ⏱️ *5m*",
+            f"{indent}🪙 *{symbol}*  |  ⏱️ *{timeframe}*",
             "",
             f"{indent}💰 *Signal:* `{signal_type}`",
-            f"{indent}🎯 *Confidence:* `{signal['confidence']}%`",
+            f"{indent}🎯 *Confidence:* `{signal['confidence']:.1f}%`",
             "",
-            f"{indent}📍 *Entry:* `{signal['entry_price']:.6f}`",
-            f"{indent}🛑 *Stop Loss:* `{signal['stop_loss']:.6f}` ({self._calculate_pct(signal['entry_price'], signal['stop_loss']):.2f}%)",
-            f"{indent}🎯 *Take Profit:* `{signal['take_profit']:.6f}` ({self._calculate_pct(signal['entry_price'], signal['take_profit']):.2f}%)",
+            f"{indent}📍 *Entry:* `{signal['entry']:.6f}`",
+            f"{indent}🎯 *Take Profit:* `{tp:.6f}` ({self._calculate_pct(entry, tp):.2f}%)",
+            f"{indent}🛑 *Stop Loss:* `{sl:.6f}` ({self._calculate_pct(entry, sl):.2f}%)",
         ]
 
         # Risk:Reward ratio
-        risk = abs(signal['entry_price'] - signal['stop_loss'])
-        reward = abs(signal['take_profit'] - signal['entry_price'])
+        risk = abs(entry - sl)
+        reward = abs(tp - entry)
         rr_ratio = reward / risk if risk > 0 else 0
         lines.append(f"{indent}💎 *Risk:Reward:* `1:{rr_ratio:.2f}`")
 
